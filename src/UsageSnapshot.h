@@ -9,7 +9,7 @@
 
 namespace usage_monitor {
 
-enum class ProviderId { kClaude, kCodex };
+enum class ProviderId { kClaude, kCodex, kCopilot, kMiniMax, kKimi, kZai };
 
 // One rate-limit window (5-hour session or 7-day weekly).
 struct WindowQuota {

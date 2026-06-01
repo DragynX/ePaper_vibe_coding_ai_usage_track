@@ -1,0 +1,116 @@
+#include "KimiUsageClient.h"
+
+#include <ArduinoJson.h>
+
+#include "IsoTime.h"
+#include "QuotaMath.h"
+
+namespace usage_monitor {
+
+bool KimiUsageClient::fetch(long now, ProviderQuota& out) {
+  out = ProviderQuota();
+  out.id = ProviderId::kKimi;
+  if (!oauth_) return false;
+
+  // Kimi requires many browser-like headers to accept the request.
+  String token = oauth_->state()->accessToken;
+  token.trim();
+
+  HttpHeader headers[10];
+  size_t hn = 0;
+  headers[hn++] = { "Authorization", String("Bearer ") + token };
+  headers[hn++] = { "Cookie", String("kimi-auth=") + token };
+  headers[hn++] = { "Content-Type", "application/json" };
+  headers[hn++] = { "Accept", "*/*" };
+  headers[hn++] = { "Origin", "https://www.kimi.com" };
+  headers[hn++] = { "Referer", "https://www.kimi.com/code/console" };
+  headers[hn++] = { "connect-protocol-version", "1" };
+  headers[hn++] = { "x-msh-platform", "web" };
+
+  // Kimi is a POST endpoint: bypass OAuthClient::get and use HttpClient directly.
+  // A static HttpClient instance reuses the timeout from the first call.
+  static HttpClient kimiHttp;
+  static bool kimiInited = false;
+  if (!kimiInited) { kimiHttp.configure(45000); kimiInited = true; }
+
+  String body = "{\"scope\":[\"FEATURE_CODING\"]}";
+  HttpResult r = kimiHttp.post(
+      "https://www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages",
+      headers, hn, body, "application/json",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36");
+
+  if (r.status == 401 || r.status == 403) {
+    out.needsRelogin = true;
+    return false;
+  }
+  if (r.status != 200) {
+    Serial1.printf("[kimi/usage] status %d\n", r.status);
+    return false;
+  }
+
+  JsonDocument doc;
+  if (deserializeJson(doc, r.body)) {
+    Serial1.println("[kimi/usage] json parse error");
+    return false;
+  }
+
+  // Find the FEATURE_CODING scope entry.
+  JsonArray usages = doc["usages"];
+  JsonVariant coding;
+  for (JsonVariant u : usages) {
+    if (String(u["scope"] | "") == "FEATURE_CODING") { coding = u; break; }
+  }
+  if (coding.isNull()) {
+    Serial1.println("[kimi/usage] no FEATURE_CODING scope");
+    return false;
+  }
+
+  // Weekly quota from detail.
+  auto parseNums = [](JsonVariant d, int& used, int& limit, int& remaining) {
+    limit = String(d["limit"] | "0").toInt();
+    int rawUsed = String(d["used"] | "").toInt();
+    int rawRemaining = String(d["remaining"] | "").toInt();
+    if (limit > 0) {
+      used = rawUsed;
+      remaining = (rawRemaining > 0) ? rawRemaining : (limit - rawUsed);
+    } else {
+      used = 0; remaining = 0;
+    }
+  };
+
+  int wUsed = 0, wLimit = 0, wRemaining = 0;
+  parseNums(coding["detail"], wUsed, wLimit, wRemaining);
+  out.weekly.present = true;
+  out.weekly.usedPercent = wLimit > 0 ? (1.0 - static_cast<double>(wRemaining) / wLimit) * 100.0 : 0.0;
+  out.weekly.status = umStatusFromUsed(out.weekly.usedPercent);
+
+  const char* resetTime = coding["detail"]["reset_time"];
+  if (resetTime) out.weekly.resetEpoch = umParseIso8601(resetTime);
+
+  // 5-hour rate limit from limits array (duration=300, timeUnit=TIME_UNIT_MINUTE).
+  JsonArray limits = coding["limits"];
+  for (JsonVariant lim : limits) {
+    if ((lim["window"]["duration"] | 0) == 300 &&
+        String(lim["window"]["time_unit"] | "") == "TIME_UNIT_MINUTE") {
+      int sUsed = 0, sLimit = 0, sRemaining = 0;
+      parseNums(lim["detail"], sUsed, sLimit, sRemaining);
+      out.session.present = true;
+      out.session.usedPercent = sLimit > 0 ? (1.0 - static_cast<double>(sRemaining) / sLimit) * 100.0 : 0.0;
+      out.session.status = umStatusFromUsed(out.session.usedPercent);
+      const char* sReset = lim["detail"]["reset_time"];
+      if (sReset) out.session.resetEpoch = umParseIso8601(sReset);
+      break;
+    }
+  }
+
+  // Detect tier from weekly limit.
+  if (wLimit == 1024) { out.hasPlan = true; strncpy(out.planType, "Andante", sizeof(out.planType) - 1); }
+  else if (wLimit == 2048) { out.hasPlan = true; strncpy(out.planType, "Moderato", sizeof(out.planType) - 1); }
+  else if (wLimit == 7168) { out.hasPlan = true; strncpy(out.planType, "Allegretto", sizeof(out.planType) - 1); }
+
+  out.ok = true;
+  out.lastSuccessEpoch = now;
+  return true;
+}
+
+}  // namespace usage_monitor

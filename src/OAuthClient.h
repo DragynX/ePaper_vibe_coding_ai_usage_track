@@ -19,6 +19,7 @@ struct AuthState {
   String accountId;                 // Codex only
   long   expiryEpoch = 0;           // Claude: absolute expiry (sec); Codex: last_refresh (sec)
   bool   usesAbsoluteExpiry = true; // true=Claude (expiry), false=Codex (8-day age)
+  bool   neverExpires = false;      // static keys (PAT, API key) that need no refresh
 };
 
 // Provider-specific token refresh. Implementations mutate `st` on success and

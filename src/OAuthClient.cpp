@@ -12,6 +12,7 @@ void OAuthClient::configure(HttpClient* http, OAuthProvider* provider, AuthState
 
 bool OAuthClient::tokenExpired(long nowEpoch) const {
   if (!state_) return true;
+  if (state_->neverExpires) return false;
   return state_->usesAbsoluteExpiry
              ? umClaudeTokenExpired(state_->expiryEpoch, nowEpoch)
              : umCodexTokenExpired(state_->expiryEpoch, nowEpoch);
