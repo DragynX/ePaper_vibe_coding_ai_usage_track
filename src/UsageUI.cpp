@@ -354,10 +354,10 @@ void UsageUI::drawDashboard(const UsageSnapshot& snap, const UiStatus& st, long 
     display_.fillRect(dividerX, colTop, 1, colH, kLine);
   }
 
-  // Left = Codex, right = Claude (matches the reference layout).
-  drawProviderColumn(margin, colTop, colW, colH, "Codex", snap.codex, nowEpoch);
-  drawProviderColumn(margin + colW + colGap, colTop, colW, colH, "Claude",
-                     snap.claude, nowEpoch);
+  // Left and right providers, names from the snapshot (set by ProviderSelect.h).
+  drawProviderColumn(margin, colTop, colW, colH, snap.left.name, snap.left, nowEpoch);
+  drawProviderColumn(margin + colW + colGap, colTop, colW, colH, snap.right.name,
+                     snap.right, nowEpoch);
 
   // Footer: "updated HH:MM - 5 min refresh".
   if (kIsLarge && nowEpoch > 0) {

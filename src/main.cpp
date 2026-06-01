@@ -1,21 +1,16 @@
 /*
- * UsageMonitor -- an e-paper desk display of Claude Code and Codex usage quotas.
+ * UsageMonitor -- an e-paper desk display of AI coding assistant usage quotas.
  *
- * The device connects to WiFi and talks directly to the Claude and OpenAI
- * OAuth usage APIs (no companion PC), refreshes its own bearer tokens, and
- * renders both providers' rate-limit windows.
+ * The device connects to WiFi and talks directly to provider APIs (no companion
+ * PC), refreshes its own bearer tokens, and renders a two-column dashboard.
+ * Which two providers appear on screen is chosen at compile time via
+ * UM_ENABLE_<X> / UM_<X>_SIDE build flags (see platformio.ini).
  *
- * This file is the PlatformIO entry point and the only file you edit to point
- * the device at your network and accounts. Fill src/secrets.h (copied from
- * include/secrets.example.h) with your WiFi and OAuth bootstrap tokens.
+ * Supported providers (pure HTTPS, device-direct):
+ *   Claude, Codex, Copilot, MiniMax, Kimi, Zai
  *
- *   UsageApp.*          orchestrator (boot, WiFi, NTP, poll)
- *   HttpClient.*        HTTPS transport (+ response headers, Retry-After)
- *   OAuthClient.*       authed request with refresh + retry
- *   TokenStore.*        NVS persistence of rotated tokens
- *   ClaudeUsageClient.* / CodexUsageClient.*   per-provider adapters
- *   UsageUI.*           e-paper drawing (Phase 3)
- *   driver.h            device model + screen capability selector
+ * Fill src/secrets.h (copied from include/secrets.example.h) with your WiFi
+ * credentials and the bootstrap tokens for the two providers you chose.
  */
 
 #include <Arduino.h>
@@ -39,6 +34,13 @@ static const UsageConfig kConfig = {
   .codexRefreshToken  = UM_CODEX_REFRESH_TOKEN,
   .codexAccountId     = UM_CODEX_ACCOUNT_ID,
   .codexLastRefresh   = UM_CODEX_LAST_REFRESH,
+
+  .copilotPat         = UM_COPILOT_PAT,
+  .minimaxApiKey      = UM_MINIMAX_API_KEY,
+  .minimaxRegion      = UM_MINIMAX_REGION,
+  .kimiAuthToken      = UM_KIMI_AUTH_TOKEN,
+  .zaiApiKey          = UM_ZAI_API_KEY,
+  .zaiEndpoint        = UM_ZAI_ENDPOINT,
 
   .httpTimeoutMs      = 45000,
   .refreshIntervalMs  = 300000UL,   // 5 minutes

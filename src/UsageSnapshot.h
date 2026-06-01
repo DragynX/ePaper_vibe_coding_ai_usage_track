@@ -23,6 +23,7 @@ struct WindowQuota {
 // A single provider's quota snapshot.
 struct ProviderQuota {
   ProviderId id = ProviderId::kClaude;
+  char name[16] = {0};               // display name, e.g. "Claude", "Codex", "Copilot"
   bool ok = false;                    // last fetch succeeded
   bool needsRelogin = false;          // refresh token revoked -> user must re-login
   long lastSuccessEpoch = 0;          // for staleness
@@ -49,10 +50,10 @@ struct ProviderQuota {
   }
 };
 
-// Both providers, the unit the UI renders.
+// The two displayed providers (left column and right column).
 struct UsageSnapshot {
-  ProviderQuota claude;
-  ProviderQuota codex;
+  ProviderQuota left;
+  ProviderQuota right;
 };
 
 }  // namespace usage_monitor

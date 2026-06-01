@@ -2,16 +2,36 @@
 
 #include <WiFi.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "driver.h"
 #include "IsoTime.h"
+#include "ProviderSelect.h"
 #include "UiLang.h"
 
 namespace usage_monitor {
 
-// 2020-01-01; time() below this means the clock is not yet set.
 static const long kSanityFloorEpoch = 1577836800L;
+
+// Seed an AuthState from config fields. Helpers avoid repeating #if chains.
+static void seedClaude(AuthState& st, const UsageConfig& cfg) {
+  st.accessToken = cfg.claudeAccessToken;
+  st.refreshToken = cfg.claudeRefreshToken;
+  st.expiryEpoch = atoll(cfg.claudeExpiresAtMs) / 1000L;
+  st.usesAbsoluteExpiry = true;
+}
+static void seedCodex(AuthState& st, const UsageConfig& cfg) {
+  st.accessToken = cfg.codexAccessToken;
+  st.refreshToken = cfg.codexRefreshToken;
+  st.accountId = cfg.codexAccountId;
+  st.expiryEpoch = umParseIso8601(cfg.codexLastRefresh);
+  st.usesAbsoluteExpiry = false;
+}
+static void seedStaticKey(AuthState& st, const char* key) {
+  st.accessToken = key;
+  st.neverExpires = true;
+}
 
 UsageApp::UsageApp(const UsageConfig& config) : config_(config) {}
 
@@ -22,28 +42,67 @@ void UsageApp::begin() {
   pinMode(UM_LED_PIN, OUTPUT);
   digitalWrite(UM_LED_PIN, LOW);
 
-  // Seed auth from bootstrap config; this also sets the expiry model per provider.
-  claudeAuth_.accessToken = config_.claudeAccessToken;
-  claudeAuth_.refreshToken = config_.claudeRefreshToken;
-  claudeAuth_.expiryEpoch = atoll(config_.claudeExpiresAtMs) / 1000L;  // ms -> sec
-  claudeAuth_.usesAbsoluteExpiry = true;
+  // Seed LEFT provider auth.
+#if UM_LEFT_PROVIDER == UM_PROV_CLAUDE
+  seedClaude(leftAuth_, config_);
+#elif UM_LEFT_PROVIDER == UM_PROV_CODEX
+  seedCodex(leftAuth_, config_);
+#elif UM_LEFT_PROVIDER == UM_PROV_COPILOT
+  seedStaticKey(leftAuth_, config_.copilotPat);
+#elif UM_LEFT_PROVIDER == UM_PROV_MINIMAX
+  seedStaticKey(leftAuth_, config_.minimaxApiKey);
+#elif UM_LEFT_PROVIDER == UM_PROV_KIMI
+  leftAuth_.accessToken = config_.kimiAuthToken;
+  leftAuth_.neverExpires = true;
+#elif UM_LEFT_PROVIDER == UM_PROV_ZAI
+  seedStaticKey(leftAuth_, config_.zaiApiKey);
+#endif
 
-  codexAuth_.accessToken = config_.codexAccessToken;
-  codexAuth_.refreshToken = config_.codexRefreshToken;
-  codexAuth_.accountId = config_.codexAccountId;
-  codexAuth_.expiryEpoch = umParseIso8601(config_.codexLastRefresh);   // ISO -> sec
-  codexAuth_.usesAbsoluteExpiry = false;
+  // Seed RIGHT provider auth.
+#if UM_RIGHT_PROVIDER == UM_PROV_CLAUDE
+  seedClaude(rightAuth_, config_);
+#elif UM_RIGHT_PROVIDER == UM_PROV_CODEX
+  seedCodex(rightAuth_, config_);
+#elif UM_RIGHT_PROVIDER == UM_PROV_COPILOT
+  seedStaticKey(rightAuth_, config_.copilotPat);
+#elif UM_RIGHT_PROVIDER == UM_PROV_MINIMAX
+  seedStaticKey(rightAuth_, config_.minimaxApiKey);
+#elif UM_RIGHT_PROVIDER == UM_PROV_KIMI
+  rightAuth_.accessToken = config_.kimiAuthToken;
+  rightAuth_.neverExpires = true;
+#elif UM_RIGHT_PROVIDER == UM_PROV_ZAI
+  seedStaticKey(rightAuth_, config_.zaiApiKey);
+#endif
 
-  // Prefer rotated tokens already in NVS over the bootstrap values.
   store_.begin();
-  store_.load("c", claudeAuth_);
-  store_.load("x", codexAuth_);
+  store_.load("L", leftAuth_);
+  store_.load("R", rightAuth_);
 
   http_.configure(config_.httpTimeoutMs);
-  claudeOAuth_.configure(&http_, &claudeProvider_, &claudeAuth_);
-  codexOAuth_.configure(&http_, &codexProvider_, &codexAuth_);
-  claude_.configure(&claudeOAuth_);
-  codex_.configure(&codexOAuth_);
+  leftOAuth_.configure(&http_, &leftProvider_, &leftAuth_);
+  rightOAuth_.configure(&http_, &rightProvider_, &rightAuth_);
+
+  // Configure the usage clients.
+#if UM_LEFT_PROVIDER == UM_PROV_MINIMAX
+  leftClient_.configure(&leftOAuth_,
+      config_.minimaxRegion == 1 ? "https://api.minimaxi.com" : "https://api.minimax.io");
+#elif UM_LEFT_PROVIDER == UM_PROV_ZAI
+  leftClient_.configure(&leftOAuth_, config_.zaiEndpoint);
+#else
+  leftClient_.configure(&leftOAuth_);
+#endif
+
+#if UM_RIGHT_PROVIDER == UM_PROV_MINIMAX
+  rightClient_.configure(&rightOAuth_,
+      config_.minimaxRegion == 1 ? "https://api.minimaxi.com" : "https://api.minimax.io");
+#elif UM_RIGHT_PROVIDER == UM_PROV_ZAI
+  rightClient_.configure(&rightOAuth_, config_.zaiEndpoint);
+#else
+  rightClient_.configure(&rightOAuth_);
+#endif
+
+  strncpy(snapshot_.left.name, UM_LEFT_NAME, sizeof(snapshot_.left.name) - 1);
+  strncpy(snapshot_.right.name, UM_RIGHT_NAME, sizeof(snapshot_.right.name) - 1);
 
   ui_.begin();
   ui_.drawBoot(uiStr(UiStringId::kBootWifi), currentStatus(), now());
@@ -88,7 +147,6 @@ bool UsageApp::ensureWiFi(uint32_t timeoutMs) {
 }
 
 void UsageApp::syncTime() {
-  // configTzTime sets the system clock from NTP; time() is UTC regardless of TZ.
   configTzTime(config_.tz, "pool.ntp.org", "time.nist.gov");
   for (int i = 0; i < 20 && static_cast<long>(time(nullptr)) < kSanityFloorEpoch; ++i) {
     delay(500);
@@ -97,7 +155,7 @@ void UsageApp::syncTime() {
     timeSynced_ = true;
     Serial1.printf("[time] NTP ok: %ld\n", static_cast<long>(time(nullptr)));
   } else {
-    Serial1.println("[time] NTP failed (countdowns may be wrong)");
+    Serial1.println("[time] NTP failed");
   }
 }
 
@@ -106,33 +164,50 @@ long UsageApp::now() { return static_cast<long>(time(nullptr)); }
 UiStatus UsageApp::currentStatus() {
   UiStatus s;
   s.wifiConnected = (WiFi.status() == WL_CONNECTED);
-  s.batteryPercent = -1;   // battery sensing not wired in this build
+  s.batteryPercent = -1;
   return s;
+}
+
+void UsageApp::fetchLeft(long n) {
+  if (leftClient_.fetch(n, snapshot_.left)) {
+#if UM_LEFT_PROVIDER == UM_PROV_CLAUDE
+    snapshot_.left.hasPlan = true;
+    strncpy(snapshot_.left.planType, config_.claudeSubscription,
+            sizeof(snapshot_.left.planType) - 1);
+#endif
+    store_.save("L", leftAuth_);
+  } else if (snapshot_.left.needsRelogin) {
+    Serial1.printf("[%s] needs relogin\n", UM_LEFT_NAME);
+  }
+  strncpy(snapshot_.left.name, UM_LEFT_NAME, sizeof(snapshot_.left.name) - 1);
+}
+
+void UsageApp::fetchRight(long n) {
+  if (rightClient_.fetch(n, snapshot_.right)) {
+#if UM_RIGHT_PROVIDER == UM_PROV_CLAUDE
+    snapshot_.right.hasPlan = true;
+    strncpy(snapshot_.right.planType, config_.claudeSubscription,
+            sizeof(snapshot_.right.planType) - 1);
+#endif
+    store_.save("R", rightAuth_);
+  } else if (snapshot_.right.needsRelogin) {
+    Serial1.printf("[%s] needs relogin\n", UM_RIGHT_NAME);
+  }
+  strncpy(snapshot_.right.name, UM_RIGHT_NAME, sizeof(snapshot_.right.name) - 1);
 }
 
 void UsageApp::refreshAll() {
   const long n = now();
-  if (claude_.fetch(n, snapshot_.claude)) {
-    snapshot_.claude.hasPlan = true;
-    strncpy(snapshot_.claude.planType, config_.claudeSubscription,
-            sizeof(snapshot_.claude.planType) - 1);
-    store_.save("c", claudeAuth_);   // TODO(nvs): persist only when tokens rotated
-  } else if (snapshot_.claude.needsRelogin) {
-    Serial1.println("[claude] needs relogin");
-  }
-  if (codex_.fetch(n, snapshot_.codex)) {
-    store_.save("x", codexAuth_);
-  } else if (snapshot_.codex.needsRelogin) {
-    Serial1.println("[codex] needs relogin");
-  }
+  fetchLeft(n);
+  fetchRight(n);
   printSnapshot();
   ui_.drawDashboard(snapshot_, currentStatus(), now());
 }
 
 void UsageApp::printSnapshot() {
   const long n = now();
-  auto pr = [&](const char* name, const ProviderQuota& p) {
-    Serial1.printf("[%s] ok=%d relogin=%d stale=%d\n", name,
+  auto pr = [&](const ProviderQuota& p) {
+    Serial1.printf("[%s] ok=%d relogin=%d stale=%d\n", p.name,
                    p.ok ? 1 : 0, p.needsRelogin ? 1 : 0, p.isStale(n, 900) ? 1 : 0);
     if (p.session.present)
       Serial1.printf("  session: used %.1f%%  left %.1f%%  reset_in %lds\n",
@@ -142,18 +217,12 @@ void UsageApp::printSnapshot() {
       Serial1.printf("  weekly : used %.1f%%  left %.1f%%  reset_in %lds\n",
                      p.weekly.usedPercent, p.weekly.remainingPercent(),
                      p.weekly.resetEpoch > 0 ? (p.weekly.resetEpoch - n) : 0L);
-    if (p.weeklySonnet.present)
-      Serial1.printf("  sonnet7d: used %.1f%%\n", p.weeklySonnet.usedPercent);
-    if (p.weeklyOpus.present)
-      Serial1.printf("  opus7d  : used %.1f%%\n", p.weeklyOpus.usedPercent);
     if (p.hasBalance) Serial1.printf("  balance : %.2f\n", p.balance);
-    if (p.extraEnabled)
-      Serial1.printf("  extra   : %.0f/%.0f cents\n", p.extraUsedCents, p.extraLimitCents);
     if (p.hasPlan) Serial1.printf("  plan    : %s\n", p.planType);
   };
   Serial1.println("---- usage snapshot ----");
-  pr("claude", snapshot_.claude);
-  pr("codex", snapshot_.codex);
+  pr(snapshot_.left);
+  pr(snapshot_.right);
   Serial1.println("------------------------");
 }
 
