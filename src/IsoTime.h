@@ -15,6 +15,26 @@
 
 namespace usage_monitor {
 
+// Days since epoch for a UTC calendar date (civil-from-days algorithm by
+// Howard Hinnant). Avoids depending on timegm, which is absent on ESP32 newlib.
+// 把 UTC 年月日换算成自 1970-01-01 起的天数(避免依赖 ESP32 上缺失的 timegm)。
+inline long umDaysFromCivil(long y, unsigned m, unsigned d) {
+  y -= (m <= 2);
+  const long era = (y >= 0 ? y : y - 399) / 400;
+  const unsigned yoe = static_cast<unsigned>(y - era * 400);
+  const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097L + static_cast<long>(doe) - 719468L;
+}
+
+// Convert a broken-down UTC time to a Unix epoch (seconds). Portable
+// replacement for timegm; identical result on host and device.
+inline long umTimegm(int year, int mon, int day, int hour, int min, int sec) {
+  const long days = umDaysFromCivil(year, static_cast<unsigned>(mon),
+                                    static_cast<unsigned>(day));
+  return days * 86400L + hour * 3600L + min * 60L + sec;
+}
+
 // Parse a timezone offset (seconds) from an ISO8601 string. Scans only after
 // the date/time separator so the date's hyphens are not mistaken for a sign.
 // 'Z' (or no offset) -> 0.
@@ -46,15 +66,7 @@ inline long umParseIso8601(const char* s) {
     return 0;
   }
   if (year < 1970 || mon < 1 || mon > 12 || day < 1 || day > 31) return 0;
-  struct tm t;
-  memset(&t, 0, sizeof(t));
-  t.tm_year = year - 1900;
-  t.tm_mon  = mon - 1;
-  t.tm_mday = day;
-  t.tm_hour = hour;
-  t.tm_min  = min;
-  t.tm_sec  = sec;
-  const long epoch = static_cast<long>(timegm(&t));
+  const long epoch = umTimegm(year, mon, day, hour, min, sec);
   return epoch - umParseTzOffset(s);
 }
 
