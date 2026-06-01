@@ -9,14 +9,8 @@
 
 namespace usage_monitor {
 
-// Static API key: never needs refresh.
-class ZaiAuthProvider : public OAuthProvider {
- public:
-  bool refresh(HttpClient&, AuthState&, long, bool& needsRelogin) override {
-    needsRelogin = false;
-    return true;
-  }
-};
+// Static API key: uses the shared StaticKeyAuthProvider from OAuthClient.h.
+using ZaiAuthProvider = StaticKeyAuthProvider;
 
 class ZaiUsageClient {
  public:

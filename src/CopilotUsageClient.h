@@ -9,14 +9,8 @@
 
 namespace usage_monitor {
 
-// Static PAT: never needs refresh.
-class CopilotAuthProvider : public OAuthProvider {
- public:
-  bool refresh(HttpClient&, AuthState&, long, bool& needsRelogin) override {
-    needsRelogin = false;
-    return true;
-  }
-};
+// Static PAT: uses the shared StaticKeyAuthProvider from OAuthClient.h.
+using CopilotAuthProvider = StaticKeyAuthProvider;
 
 class CopilotUsageClient {
  public:

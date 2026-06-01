@@ -12,44 +12,32 @@ bool KimiUsageClient::fetch(long now, ProviderQuota& out) {
   out.id = ProviderId::kKimi;
   if (!oauth_) return false;
 
-  // Kimi requires many browser-like headers to accept the request.
+  // Kimi requires browser-like headers alongside the Bearer token.
   String token = oauth_->state()->accessToken;
   token.trim();
-
-  HttpHeader headers[10];
-  size_t hn = 0;
-  headers[hn++] = { "Authorization", String("Bearer ") + token };
-  headers[hn++] = { "Cookie", String("kimi-auth=") + token };
-  headers[hn++] = { "Content-Type", "application/json" };
-  headers[hn++] = { "Accept", "*/*" };
-  headers[hn++] = { "Origin", "https://www.kimi.com" };
-  headers[hn++] = { "Referer", "https://www.kimi.com/code/console" };
-  headers[hn++] = { "connect-protocol-version", "1" };
-  headers[hn++] = { "x-msh-platform", "web" };
-
-  // Kimi is a POST endpoint: bypass OAuthClient::get and use HttpClient directly.
-  // A static HttpClient instance reuses the timeout from the first call.
-  static HttpClient kimiHttp;
-  static bool kimiInited = false;
-  if (!kimiInited) { kimiHttp.configure(45000); kimiInited = true; }
+  const HttpHeader extra[] = {
+    { "Cookie", String("kimi-auth=") + token },
+    { "Accept", "*/*" },
+    { "Origin", "https://www.kimi.com" },
+    { "Referer", "https://www.kimi.com/code/console" },
+    { "connect-protocol-version", "1" },
+    { "x-msh-platform", "web" },
+  };
 
   String body = "{\"scope\":[\"FEATURE_CODING\"]}";
-  HttpResult r = kimiHttp.post(
+  AuthedResult ar = oauth_->post(
       "https://www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages",
-      headers, hn, body, "application/json",
+      extra, 6, body, "application/json", now,
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36");
 
-  if (r.status == 401 || r.status == 403) {
-    out.needsRelogin = true;
-    return false;
-  }
-  if (r.status != 200) {
-    Serial1.printf("[kimi/usage] status %d\n", r.status);
+  if (ar.needsRelogin) { out.needsRelogin = true; return false; }
+  if (ar.http.status != 200) {
+    Serial1.printf("[kimi/usage] status %d\n", ar.http.status);
     return false;
   }
 
   JsonDocument doc;
-  if (deserializeJson(doc, r.body)) {
+  if (deserializeJson(doc, ar.http.body)) {
     Serial1.println("[kimi/usage] json parse error");
     return false;
   }

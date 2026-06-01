@@ -19,7 +19,6 @@ struct AuthState {
   String accountId;                 // Codex only
   long   expiryEpoch = 0;           // Claude: absolute expiry (sec); Codex: last_refresh (sec)
   bool   usesAbsoluteExpiry = true; // true=Claude (expiry), false=Codex (8-day age)
-  bool   neverExpires = false;      // static keys (PAT, API key) that need no refresh
 };
 
 // Provider-specific token refresh. Implementations mutate `st` on success and
@@ -29,6 +28,17 @@ class OAuthProvider {
   virtual ~OAuthProvider() {}
   virtual bool refresh(HttpClient& http, AuthState& st, long nowEpoch,
                        bool& needsRelogin) = 0;
+};
+
+// For providers with static keys (PAT, API key) that never need refresh.
+// tokenExpired() returns true on expiryEpoch==0, triggers this no-op, and
+// proceeds — no special neverExpires flag needed.
+class StaticKeyAuthProvider : public OAuthProvider {
+ public:
+  bool refresh(HttpClient&, AuthState&, long, bool& needsRelogin) override {
+    needsRelogin = false;
+    return true;
+  }
 };
 
 struct AuthedResult {
@@ -44,11 +54,15 @@ class OAuthClient {
 
   bool tokenExpired(long nowEpoch) const;
 
-  // Authed GET: proactive refresh if expired, then on 401/403 refresh once and
-  // retry exactly once.
+  // Authed GET/POST: proactive refresh if expired, then on 401/403 refresh
+  // once and retry exactly once.
   AuthedResult get(const String& url, const HttpHeader* extra, size_t extraN,
                    const char* const* respKeys, size_t respKeyN,
                    long nowEpoch, const char* userAgent);
+  AuthedResult post(const String& url, const HttpHeader* extra, size_t extraN,
+                    const String& body, const char* contentType,
+                    long nowEpoch, const char* userAgent);
+  HttpClient* http() { return http_; }
 
  private:
   HttpClient*    http_ = nullptr;

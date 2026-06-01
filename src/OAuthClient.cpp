@@ -12,7 +12,6 @@ void OAuthClient::configure(HttpClient* http, OAuthProvider* provider, AuthState
 
 bool OAuthClient::tokenExpired(long nowEpoch) const {
   if (!state_) return true;
-  if (state_->neverExpires) return false;
   return state_->usesAbsoluteExpiry
              ? umClaudeTokenExpired(state_->expiryEpoch, nowEpoch)
              : umCodexTokenExpired(state_->expiryEpoch, nowEpoch);
@@ -54,6 +53,35 @@ AuthedResult OAuthClient::get(const String& url, const HttpHeader* extra, size_t
       } else {
         break;   // refresh failed (needsRelogin already set if hard failure)
       }
+    }
+  }
+  return ar;
+}
+
+AuthedResult OAuthClient::post(const String& url, const HttpHeader* extra, size_t extraN,
+                               const String& body, const char* contentType,
+                               long nowEpoch, const char* userAgent) {
+  AuthedResult ar;
+  if (!http_ || !provider_ || !state_) { ar.http.status = -1; return ar; }
+
+  if (tokenExpired(nowEpoch)) {
+    if (provider_->refresh(*http_, *state_, nowEpoch, ar.needsRelogin)) ar.refreshed = true;
+    else if (ar.needsRelogin) return ar;
+  }
+
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    HttpHeader headers[8];
+    size_t n = 0;
+    String token = state_->accessToken;
+    token.trim();
+    headers[n++] = { "Authorization", String("Bearer ") + token };
+    for (size_t i = 0; i < extraN && n < 8; ++i) headers[n++] = extra[i];
+
+    ar.http = http_->post(url, headers, n, body, contentType, userAgent);
+    if (ar.http.status != 401 && ar.http.status != 403) break;
+    if (attempt == 0) {
+      if (provider_->refresh(*http_, *state_, nowEpoch, ar.needsRelogin)) ar.refreshed = true;
+      else break;
     }
   }
   return ar;

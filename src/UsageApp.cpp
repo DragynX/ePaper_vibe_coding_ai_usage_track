@@ -30,7 +30,6 @@ static void seedCodex(AuthState& st, const UsageConfig& cfg) {
 }
 static void seedStaticKey(AuthState& st, const char* key) {
   st.accessToken = key;
-  st.neverExpires = true;
 }
 
 UsageApp::UsageApp(const UsageConfig& config) : config_(config) {}
@@ -52,8 +51,7 @@ void UsageApp::begin() {
 #elif UM_LEFT_PROVIDER == UM_PROV_MINIMAX
   seedStaticKey(leftAuth_, config_.minimaxApiKey);
 #elif UM_LEFT_PROVIDER == UM_PROV_KIMI
-  leftAuth_.accessToken = config_.kimiAuthToken;
-  leftAuth_.neverExpires = true;
+  seedStaticKey(leftAuth_, config_.kimiAuthToken);
 #elif UM_LEFT_PROVIDER == UM_PROV_ZAI
   seedStaticKey(leftAuth_, config_.zaiApiKey);
 #endif
@@ -68,8 +66,7 @@ void UsageApp::begin() {
 #elif UM_RIGHT_PROVIDER == UM_PROV_MINIMAX
   seedStaticKey(rightAuth_, config_.minimaxApiKey);
 #elif UM_RIGHT_PROVIDER == UM_PROV_KIMI
-  rightAuth_.accessToken = config_.kimiAuthToken;
-  rightAuth_.neverExpires = true;
+  seedStaticKey(rightAuth_, config_.kimiAuthToken);
 #elif UM_RIGHT_PROVIDER == UM_PROV_ZAI
   seedStaticKey(rightAuth_, config_.zaiApiKey);
 #endif
@@ -179,7 +176,6 @@ void UsageApp::fetchLeft(long n) {
   } else if (snapshot_.left.needsRelogin) {
     Serial1.printf("[%s] needs relogin\n", UM_LEFT_NAME);
   }
-  strncpy(snapshot_.left.name, UM_LEFT_NAME, sizeof(snapshot_.left.name) - 1);
 }
 
 void UsageApp::fetchRight(long n) {
@@ -193,7 +189,6 @@ void UsageApp::fetchRight(long n) {
   } else if (snapshot_.right.needsRelogin) {
     Serial1.printf("[%s] needs relogin\n", UM_RIGHT_NAME);
   }
-  strncpy(snapshot_.right.name, UM_RIGHT_NAME, sizeof(snapshot_.right.name) - 1);
 }
 
 void UsageApp::refreshAll() {

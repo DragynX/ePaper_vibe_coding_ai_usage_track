@@ -40,7 +40,7 @@ bool ZaiUsageClient::fetch(long now, ProviderQuota& out) {
     const char* type = lim["type"];
     const int unit = lim["unit"] | -1;
     const double pctUsed = lim["percentage"] | 0.0;
-    const double clamped = (pctUsed > 100.0) ? 100.0 : (pctUsed < 0.0 ? 0.0 : pctUsed);
+    const double clamped = umClampPercent(pctUsed);
 
     // Parse reset time: can be unix ms (number) or ISO8601 string.
     long resetEpoch = 0;

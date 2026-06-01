@@ -9,7 +9,7 @@
 
 namespace usage_monitor {
 
-// No refresh mechanism for Kimi; cookie expires -> needsRelogin.
+// No refresh mechanism for Kimi; on 401 the cookie is dead.
 class KimiAuthProvider : public OAuthProvider {
  public:
   bool refresh(HttpClient&, AuthState&, long, bool& needsRelogin) override {
