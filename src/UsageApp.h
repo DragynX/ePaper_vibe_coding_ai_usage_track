@@ -15,6 +15,7 @@
 #include "TokenStore.h"
 #include "UsageConfig.h"
 #include "UsageSnapshot.h"
+#include "UsageUI.h"
 
 namespace usage_monitor {
 
@@ -30,6 +31,7 @@ class UsageApp {
   long now();
   void refreshAll();
   void printSnapshot();
+  UiStatus currentStatus();
 
   UsageConfig config_;
 
@@ -44,6 +46,8 @@ class UsageApp {
   OAuthClient codexOAuth_;
   ClaudeUsageClient claude_;
   CodexUsageClient codex_;
+
+  UsageUI ui_;
 
   UsageSnapshot snapshot_;
   unsigned long lastRefreshMs_ = 0;

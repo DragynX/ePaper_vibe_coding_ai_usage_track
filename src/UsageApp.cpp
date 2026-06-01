@@ -6,6 +6,7 @@
 
 #include "driver.h"
 #include "IsoTime.h"
+#include "UiLang.h"
 
 namespace usage_monitor {
 
@@ -44,9 +45,16 @@ void UsageApp::begin() {
   claude_.configure(&claudeOAuth_);
   codex_.configure(&codexOAuth_);
 
+  ui_.begin();
+  ui_.drawBoot(uiStr(UiStringId::kBootWifi), currentStatus(), now());
+
   if (ensureWiFi(15000)) {
+    ui_.drawBoot(uiStr(UiStringId::kBootSync), currentStatus(), now());
     syncTime();
+    ui_.drawBoot(uiStr(UiStringId::kBootFetch), currentStatus(), now());
     refreshAll();
+  } else {
+    ui_.drawBoot(uiStr(UiStringId::kNoWifi), currentStatus(), now());
   }
   lastRefreshMs_ = millis();
 }
@@ -95,6 +103,13 @@ void UsageApp::syncTime() {
 
 long UsageApp::now() { return static_cast<long>(time(nullptr)); }
 
+UiStatus UsageApp::currentStatus() {
+  UiStatus s;
+  s.wifiConnected = (WiFi.status() == WL_CONNECTED);
+  s.batteryPercent = -1;   // battery sensing not wired in this build
+  return s;
+}
+
 void UsageApp::refreshAll() {
   const long n = now();
   if (claude_.fetch(n, snapshot_.claude)) {
@@ -111,6 +126,7 @@ void UsageApp::refreshAll() {
     Serial1.println("[codex] needs relogin");
   }
   printSnapshot();
+  ui_.drawDashboard(snapshot_, currentStatus(), now());
 }
 
 void UsageApp::printSnapshot() {
