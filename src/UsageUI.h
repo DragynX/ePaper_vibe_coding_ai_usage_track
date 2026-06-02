@@ -69,6 +69,7 @@ class UsageUI {
   void drawReloginColumn(int x, int y, int w, int h, const char* name);
 
   void drawBox(int x, int y, int w, int h, uint16_t fill);
+  void drawStatusBadge(int x, int y, const String& text, bool alert);
   void drawInfoRow(int x, int y, int w, const char* label, const String& value,
                    int textSize, uint16_t bg);
   void drawQuotaDetail(int x, int y, int w, const char* label,

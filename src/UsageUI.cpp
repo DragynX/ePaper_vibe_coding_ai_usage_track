@@ -40,7 +40,7 @@ constexpr uint16_t kBg     = TFT_GRAY_15;
 constexpr uint16_t kCard   = TFT_GRAY_13;
 constexpr uint16_t kText   = TFT_GRAY_0;
 constexpr uint16_t kInv    = TFT_GRAY_14;
-constexpr uint16_t kMuted  = TFT_GRAY_7;
+constexpr uint16_t kMuted  = TFT_GRAY_0;
 constexpr uint16_t kLine   = TFT_GRAY_9;
 constexpr uint16_t kTrack  = TFT_GRAY_11;
 constexpr uint16_t kHealthy = TFT_GRAY_2;
@@ -120,27 +120,61 @@ void UsageUI::drawBox(int x, int y, int w, int h, uint16_t fill) {
   display_.drawRect(x, y, w, h, kLine);
 }
 
+void UsageUI::drawStatusBadge(int x, int y, const String& text, bool alert) {
+  const int padX = 12;
+  const int badgeW = renderer_.measureTextFace(text, TextFace::SansBold9) + padX * 2;
+  const int badgeH = 28;
+  const uint16_t fill = alert ? kTrack : kCard;
+  display_.fillRect(x - badgeW, y, badgeW, badgeH, fill);
+  display_.drawRect(x - badgeW, y, badgeW, badgeH, kLine);
+  renderer_.drawTextFace(text, x - padX, y + 4, TextFace::SansBold9,
+                         TextAlign::TopRight, kText, fill);
+}
+
 void UsageUI::drawInfoRow(int x, int y, int w, const char* label, const String& value,
                           int textSize, uint16_t bg) {
-  renderer_.drawText(label, x, y, textSize, TextAlign::TopLeft, kMuted, bg);
+  if (kIsLarge) {
+    renderer_.drawTextFace(label, x, y, TextFace::Sans9, TextAlign::TopLeft, kText, bg);
+    renderer_.drawTextFace(value, x + w, y, TextFace::SansBold9,
+                           TextAlign::TopRight, kText, bg);
+    return;
+  }
+  renderer_.drawText(label, x, y, textSize, TextAlign::TopLeft, kText, bg);
   renderer_.drawText(value, x + w, y, textSize, TextAlign::TopRight, kText, bg);
 }
 
 void UsageUI::drawQuotaDetail(int x, int y, int w, const char* label,
                               const WindowQuota& win, long nowEpoch) {
-  renderer_.drawText(label, x, y, 2, TextAlign::TopLeft, kText, kBg);
+  if (kIsLarge) {
+    renderer_.drawTextFace(label, x, y, TextFace::SansBold9,
+                           TextAlign::TopLeft, kText, kBg);
+  } else {
+    renderer_.drawText(label, x, y, 2, TextAlign::TopLeft, kText, kBg);
+  }
   if (!win.present) {
-    renderer_.drawText("--", x + w, y, 2, TextAlign::TopRight, kMuted, kBg);
+    renderer_.drawText("--", x + w, y, 2, TextAlign::TopRight, kText, kBg);
     return;
   }
 
   char usedBuf[16];
   snprintf(usedBuf, sizeof(usedBuf), "%d%%", static_cast<int>(win.usedPercent + 0.5));
-  renderer_.drawText(usedBuf, x + w / 3, y, 2, TextAlign::TopRight, kMuted, kBg);
-  renderer_.drawText(fmtPercent(win.remainingPercent()), x + w * 2 / 3, y, 2,
-                     TextAlign::TopRight, kText, kBg);
+  if (kIsLarge) {
+    renderer_.drawTextFace(usedBuf, x + w / 3, y, TextFace::Sans9,
+                           TextAlign::TopRight, kText, kBg);
+    renderer_.drawTextFace(fmtPercent(win.remainingPercent()), x + w * 2 / 3, y,
+                           TextFace::SansBold9, TextAlign::TopRight, kText, kBg);
+  } else {
+    renderer_.drawText(usedBuf, x + w / 3, y, 2, TextAlign::TopRight, kText, kBg);
+    renderer_.drawText(fmtPercent(win.remainingPercent()), x + w * 2 / 3, y, 2,
+                       TextAlign::TopRight, kText, kBg);
+  }
   const String resetText = win.resetEpoch > 0 ? fmtClock(win.resetEpoch) : String("--");
-  renderer_.drawText(resetText, x + w, y, 2, TextAlign::TopRight, kMuted, kBg);
+  if (kIsLarge) {
+    renderer_.drawTextFace(resetText, x + w, y, TextFace::Sans9,
+                           TextAlign::TopRight, kText, kBg);
+  } else {
+    renderer_.drawText(resetText, x + w, y, 2, TextAlign::TopRight, kText, kBg);
+  }
 
   const int barY = y + 24;
   drawProgressBar(x, barY, w, kIsLarge ? 10 : 8, win.usedPercent,
@@ -209,8 +243,13 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
   const int titleSize = kIsLarge ? 4 : 3;
 
   // Left: app title.
-  renderer_.drawText(uiStr(UiStringId::kAppName), margin, topY, titleSize,
-                     TextAlign::TopLeft, kText, kBg);
+  if (kIsLarge) {
+    renderer_.drawTextFace(uiStr(UiStringId::kAppName), margin, topY,
+                           TextFace::SansBold18, TextAlign::TopLeft, kText, kBg);
+  } else {
+    renderer_.drawText(uiStr(UiStringId::kAppName), margin, topY, titleSize,
+                       TextAlign::TopLeft, kText, kBg);
+  }
 
   // Center: wall clock + date from the NTP-synced system time (local TZ).
   char clockBuf[16] = "--:--";
@@ -224,10 +263,15 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
              lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday);
   }
   const int clockSize = kIsLarge ? 3 : 3;
-  renderer_.drawText(clockBuf, w / 2, topY, clockSize, TextAlign::TopCenter, kText, kBg);
   if (kIsLarge) {
-    renderer_.drawText(dateBuf, w / 2, topY + 34, 2,
-                       TextAlign::TopCenter, kMuted, kBg);
+    renderer_.drawTextFace(clockBuf, w / 2, topY, TextFace::MonoBold12,
+                           TextAlign::TopCenter, kText, kBg);
+  } else {
+    renderer_.drawText(clockBuf, w / 2, topY, clockSize, TextAlign::TopCenter, kText, kBg);
+  }
+  if (kIsLarge) {
+    renderer_.drawTextFace(dateBuf, w / 2, topY + 34, TextFace::Sans9,
+                           TextAlign::TopCenter, kText, kBg);
   }
 
   // Right: refresh note + WiFi/battery icons.
@@ -235,8 +279,8 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
   const int wifiH = kIsLarge ? 24 : 22;
   drawWifiIcon(w - margin - wifiW, topY, wifiW, wifiH, st.wifiConnected, kText);
   if (kIsLarge) {
-    renderer_.drawText(uiStr(UiStringId::kRefreshNote), w - margin - wifiW - 16, topY + 2,
-                       2, TextAlign::TopRight, kMuted, kBg);
+    renderer_.drawTextFace(uiStr(UiStringId::kRefreshNote), w - margin - wifiW - 16,
+                           topY + 1, TextFace::Sans9, TextAlign::TopRight, kText, kBg);
     if (st.batteryPercent >= 0) {
       drawBatteryIcon(w - margin - wifiW, topY + wifiH + 14, 56, 26,
                       st.batteryPercent, kText);
@@ -253,10 +297,17 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
 
   // Top row: window label (left) + "left" (right).
   const int labelSize = kIsLarge ? 3 : 2;
-  renderer_.drawText(label, x + pad, y + pad, labelSize,
-                     TextAlign::TopLeft, kMuted, kCard);
-  renderer_.drawText(uiStr(UiStringId::kRemaining), x + w - pad, y + pad, labelSize,
-                     TextAlign::TopRight, kMuted, kCard);
+  if (kIsLarge) {
+    renderer_.drawTextFace(label, x + pad, y + pad, TextFace::SansBold9,
+                           TextAlign::TopLeft, kText, kCard);
+    renderer_.drawTextFace(uiStr(UiStringId::kRemaining), x + w - pad, y + pad,
+                           TextFace::Sans9, TextAlign::TopRight, kText, kCard);
+  } else {
+    renderer_.drawText(label, x + pad, y + pad, labelSize,
+                       TextAlign::TopLeft, kText, kCard);
+    renderer_.drawText(uiStr(UiStringId::kRemaining), x + w - pad, y + pad, labelSize,
+                       TextAlign::TopRight, kText, kCard);
+  }
 
   if (!win.present) {
     renderer_.drawText("--", x + pad, y + h / 2 - 8, emphasize ? 6 : 5,
@@ -269,7 +320,7 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
   snprintf(pctBuf, sizeof(pctBuf), "%d%%",
            static_cast<int>(win.remainingPercent() + 0.5));
   const int bigSize = emphasize ? (kIsLarge ? 9 : 5) : (kIsLarge ? 7 : 4);
-  const int bigY = y + (kIsLarge ? pad + 30 : pad + 18);
+  const int bigY = y + (kIsLarge ? pad + 48 : pad + 18);
   renderer_.drawText(pctBuf, x + pad, bigY, bigSize, TextAlign::TopLeft, kText, kCard);
 
   // Used% bar near the bottom.
@@ -283,16 +334,26 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
   char usedBuf[24];
   snprintf(usedBuf, sizeof(usedBuf), "%s %d%%", uiStr(UiStringId::kUsed),
            static_cast<int>(win.usedPercent + 0.5));
-  renderer_.drawText(usedBuf, x + pad, y + h - pad - 14, smallSize,
-                     TextAlign::TopLeft, kMuted, kCard);
+  if (kIsLarge) {
+    renderer_.drawTextFace(usedBuf, x + pad, y + h - pad - 24, TextFace::Sans9,
+                           TextAlign::TopLeft, kText, kCard);
+  } else {
+    renderer_.drawText(usedBuf, x + pad, y + h - pad - 14, smallSize,
+                       TextAlign::TopLeft, kText, kCard);
+  }
 
   if (win.resetEpoch > 0 && nowEpoch > 0) {
     char cd[16];
     umFormatCountdown(win.resetEpoch - nowEpoch, cd, sizeof(cd));
     char resetBuf[32];
     snprintf(resetBuf, sizeof(resetBuf), "%s %s", uiStr(UiStringId::kResets), cd);
-    renderer_.drawText(resetBuf, x + w - pad, y + h - pad - 14, smallSize,
-                       TextAlign::TopRight, kMuted, kCard);
+    if (kIsLarge) {
+      renderer_.drawTextFace(resetBuf, x + w - pad, y + h - pad - 24, TextFace::Sans9,
+                             TextAlign::TopRight, kText, kCard);
+    } else {
+      renderer_.drawText(resetBuf, x + w - pad, y + h - pad - 14, smallSize,
+                         TextAlign::TopRight, kText, kCard);
+    }
   }
 }
 
@@ -327,10 +388,11 @@ void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuot
   int cy = y + pad;
 
   if (p.local.enabled) {
-    renderer_.drawText("LOCAL USAGE", x + pad, cy, 3, TextAlign::TopLeft, kText, kBg);
-    renderer_.drawText(p.local.available ? "READY" : p.local.status, x + w - pad, cy + 4,
-                       2, TextAlign::TopRight, p.local.available ? kMuted : kCrit, kBg);
-    cy += 44;
+    renderer_.drawTextFace("LOCAL USAGE", x + pad, cy, TextFace::SansBold12,
+                           TextAlign::TopLeft, kText, kBg);
+    drawStatusBadge(x + w - pad, cy, p.local.available ? "READY" : p.local.status,
+                    !p.local.available);
+    cy += 54;
 
     if (!p.local.available) {
       drawInfoRow(x + pad, cy, w - pad * 2, "STATUS", p.local.status, 2, kBg);
@@ -355,18 +417,19 @@ void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuot
                 fmtClock(p.local.latestEpoch), 2, kBg);
     cy += 44;
 
-    renderer_.drawText("TOP MODELS", x + pad, cy, 2, TextAlign::TopLeft, kText, kBg);
-    cy += 30;
+    renderer_.drawTextFace("TOP MODELS", x + pad, cy, TextFace::SansBold9,
+                           TextAlign::TopLeft, kText, kBg);
+    cy += 34;
     uint32_t maxTokens = 1;
     for (uint8_t i = 0; i < p.local.modelCount; ++i) {
       if (p.local.models[i].tokens > maxTokens) maxTokens = p.local.models[i].tokens;
     }
     for (uint8_t i = 0; i < p.local.modelCount && cy + 34 < y + h; ++i) {
       const LocalModelStat& m = p.local.models[i];
-      renderer_.drawText(m.name[0] ? m.name : "unknown", x + pad, cy, 2,
-                         TextAlign::TopLeft, kText, kBg);
-      renderer_.drawText(fmtTokens(m.tokens), x + w - pad, cy, 2,
-                         TextAlign::TopRight, kMuted, kBg);
+      renderer_.drawTextFace(m.name[0] ? m.name : "unknown", x + pad, cy,
+                             TextFace::Sans9, TextAlign::TopLeft, kText, kBg);
+      renderer_.drawTextFace(fmtTokens(m.tokens), x + w - pad, cy, TextFace::SansBold9,
+                             TextAlign::TopRight, kText, kBg);
       const int barW = w - pad * 2;
       const int fill = static_cast<int>(barW * (static_cast<double>(m.tokens) / maxTokens));
       display_.fillRect(x + pad, cy + 24, barW, 8, kTrack);
@@ -376,11 +439,11 @@ void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuot
     return;
   }
 
-  renderer_.drawText("CLOUD SUMMARY", x + pad, cy, 3, TextAlign::TopLeft, kText, kBg);
-  renderer_.drawText(p.isStale(nowEpoch, 900) ? uiStr(UiStringId::kStale) : "LIVE",
-                     x + w - pad, cy + 4, 2, TextAlign::TopRight,
-                     p.isStale(nowEpoch, 900) ? kCrit : kMuted, kBg);
-  cy += 46;
+  renderer_.drawTextFace("CLOUD SUMMARY", x + pad, cy, TextFace::SansBold12,
+                         TextAlign::TopLeft, kText, kBg);
+  drawStatusBadge(x + w - pad, cy, p.isStale(nowEpoch, 900) ? uiStr(UiStringId::kStale) : "LIVE",
+                  p.isStale(nowEpoch, 900));
+  cy += 58;
 
   drawInfoRow(x + pad, cy, w - pad * 2, "STATUS",
               p.ok ? "quota ready" : "waiting", 2, kBg);
@@ -409,8 +472,9 @@ void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuot
     cy += 34;
   }
   if (p.weeklyOpus.present || p.weeklySonnet.present) {
-    renderer_.drawText("MODEL QUOTAS", x + pad, cy, 2, TextAlign::TopLeft, kText, kBg);
-    cy += 30;
+    renderer_.drawTextFace("MODEL QUOTAS", x + pad, cy, TextFace::SansBold9,
+                           TextAlign::TopLeft, kText, kBg);
+    cy += 34;
     drawModelRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kWinOpus), p.weeklyOpus);
     cy += 36;
     drawModelRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kWinSonnet), p.weeklySonnet);
@@ -429,19 +493,19 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
   if (kIsLarge) {
     drawBox(x, y, w, h, kBg);
     const int pad = 18;
-    const int titleH = 66;
+    const int titleH = 86;
 
-    renderer_.drawText(name && name[0] ? name : "Provider", x + pad, y + 14, 4,
-                       TextAlign::TopLeft, kText, kBg);
-    renderer_.drawText(p.isStale(nowEpoch, 900) ? uiStr(UiStringId::kStale) : "LIVE",
-                       x + w - pad, y + 22, 2, TextAlign::TopRight,
-                       p.isStale(nowEpoch, 900) ? kCrit : kMuted, kBg);
+    renderer_.drawTextFace(name && name[0] ? name : "Provider", x + pad, y + 18,
+                           TextFace::SansBold24, TextAlign::TopLeft, kText, kBg);
+    drawStatusBadge(x + w - pad, y + 24,
+                    p.isStale(nowEpoch, 900) ? uiStr(UiStringId::kStale) : "LIVE",
+                    p.isStale(nowEpoch, 900));
     display_.fillRect(x, y + titleH, w, 1, kLine);
 
     const int cardGap = 12;
     const int cardY = y + titleH + 14;
     const int cardW = (w - pad * 2 - cardGap) / 2;
-    const int cardH = 196;
+    const int cardH = 220;
     drawWindowCard(x + pad, cardY, cardW, cardH, uiStr(UiStringId::kWinSession),
                    p.session, nowEpoch, /*emphasize=*/true);
     drawWindowCard(x + pad + cardW + cardGap, cardY, cardW, cardH,
@@ -449,19 +513,19 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
                    /*emphasize=*/false);
 
     const int detailY = cardY + cardH + 16;
-    const int detailH = 164;
+    const int detailH = 184;
     drawBox(x + pad, detailY, w - pad * 2, detailH, kBg);
-    renderer_.drawText("QUOTA DETAILS", x + pad + 14, detailY + 12, 2,
-                       TextAlign::TopLeft, kText, kBg);
-    renderer_.drawText("USED", x + w / 2 - 10, detailY + 12, 2,
-                       TextAlign::TopRight, kMuted, kBg);
-    renderer_.drawText("LEFT", x + w - pad - 140, detailY + 12, 2,
-                       TextAlign::TopRight, kMuted, kBg);
-    renderer_.drawText("RESET", x + w - pad - 14, detailY + 12, 2,
-                       TextAlign::TopRight, kMuted, kBg);
-    drawQuotaDetail(x + pad + 14, detailY + 46, w - pad * 2 - 28,
+    renderer_.drawTextFace("QUOTA DETAILS", x + pad + 14, detailY + 14,
+                           TextFace::SansBold12, TextAlign::TopLeft, kText, kBg);
+    renderer_.drawTextFace("USED", x + w / 2 - 10, detailY + 18, TextFace::Sans9,
+                           TextAlign::TopRight, kText, kBg);
+    renderer_.drawTextFace("LEFT", x + w - pad - 140, detailY + 18, TextFace::Sans9,
+                           TextAlign::TopRight, kText, kBg);
+    renderer_.drawTextFace("RESET", x + w - pad - 14, detailY + 18, TextFace::Sans9,
+                           TextAlign::TopRight, kText, kBg);
+    drawQuotaDetail(x + pad + 14, detailY + 62, w - pad * 2 - 28,
                     uiStr(UiStringId::kWinSession), p.session, nowEpoch);
-    drawQuotaDetail(x + pad + 14, detailY + 98, w - pad * 2 - 28,
+    drawQuotaDetail(x + pad + 14, detailY + 122, w - pad * 2 - 28,
                     uiStr(UiStringId::kWinWeekly), p.weekly, nowEpoch);
 
     const int localY = detailY + detailH + 16;

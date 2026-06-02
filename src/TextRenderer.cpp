@@ -53,6 +53,18 @@ uint8_t toTftDatum(TextAlign a) {
   return TL_DATUM;
 }
 
+const GFXfont* toFreeFont(TextFace face) {
+  switch (face) {
+    case TextFace::Sans9:      return &FreeSans9pt7b;
+    case TextFace::SansBold9:  return &FreeSansBold9pt7b;
+    case TextFace::SansBold12: return &FreeSansBold12pt7b;
+    case TextFace::SansBold18: return &FreeSansBold18pt7b;
+    case TextFace::SansBold24: return &FreeSansBold24pt7b;
+    case TextFace::MonoBold12: return &FreeMonoBold12pt7b;
+    default:                  return nullptr;
+  }
+}
+
 }  // namespace
 
 #endif
@@ -149,6 +161,36 @@ void TextRenderer::drawText(const String& text, int x, int y, int sizeUnit,
 #endif
 }
 
+void TextRenderer::drawTextFace(const String& text, int x, int y, TextFace face,
+                                TextAlign align, uint16_t color, uint16_t bg)
+{
+  if (!display_) return;
+#if UM_LANG_ZH
+  int sizeUnit = 2;
+  switch (face) {
+    case TextFace::SansBold12:
+    case TextFace::SansBold18:
+    case TextFace::SansBold24:
+    case TextFace::MonoBold12: sizeUnit = 4; break;
+    case TextFace::SansBold9:  sizeUnit = 3; break;
+    default:                  sizeUnit = 2; break;
+  }
+  drawText(text, x, y, sizeUnit, align, color, bg);
+#else
+  const GFXfont* font = toFreeFont(face);
+  if (!font) {
+    drawText(text, x, y, 2, align, color, bg);
+    return;
+  }
+  display_->setFreeFont(font);
+  display_->setTextSize(1);
+  display_->setTextColor(color, bg, true);
+  display_->setTextDatum(toTftDatum(align));
+  display_->drawString(text, x, y);
+  display_->setFreeFont(nullptr);
+#endif
+}
+
 int TextRenderer::measureText(const String& text, int sizeUnit)
 {
   if (!display_) return 0;
@@ -159,5 +201,30 @@ int TextRenderer::measureText(const String& text, int sizeUnit)
 #else
   display_->setTextSize(sizeUnit);
   return static_cast<int>(display_->textWidth(text));
+#endif
+}
+
+int TextRenderer::measureTextFace(const String& text, TextFace face)
+{
+  if (!display_) return 0;
+#if UM_LANG_ZH
+  int sizeUnit = 2;
+  switch (face) {
+    case TextFace::SansBold12:
+    case TextFace::SansBold18:
+    case TextFace::SansBold24:
+    case TextFace::MonoBold12: sizeUnit = 4; break;
+    case TextFace::SansBold9:  sizeUnit = 3; break;
+    default:                  sizeUnit = 2; break;
+  }
+  return measureText(text, sizeUnit);
+#else
+  const GFXfont* font = toFreeFont(face);
+  if (!font) return measureText(text, 2);
+  display_->setFreeFont(font);
+  display_->setTextSize(1);
+  const int w = static_cast<int>(display_->textWidth(text));
+  display_->setFreeFont(nullptr);
+  return w;
 #endif
 }

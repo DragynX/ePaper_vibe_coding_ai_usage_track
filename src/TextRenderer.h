@@ -20,6 +20,16 @@ enum class TextAlign {
   BottomLeft, BottomCenter, BottomRight
 };
 
+enum class TextFace {
+  Bitmap,
+  Sans9,
+  SansBold9,
+  SansBold12,
+  SansBold18,
+  SansBold24,
+  MonoBold12
+};
+
 class TextRenderer {
  public:
   // English build: always succeeds (the bitmap font is built in).
@@ -36,8 +46,15 @@ class TextRenderer {
   void drawText(const String& text, int x, int y, int sizeUnit,
                 TextAlign align, uint16_t color, uint16_t bg);
 
+  // Draws with one of the built-in GFX FreeFonts in English builds. Chinese
+  // builds map the face to the existing embedded font sizes.
+  // 英文构建使用内置 GFX FreeFonts 中文构建映射到现有内嵌字体字号。
+  void drawTextFace(const String& text, int x, int y, TextFace face,
+                    TextAlign align, uint16_t color, uint16_t bg);
+
   // Pixel width of `text` at `sizeUnit`, for layout that needs to measure.
   int measureText(const String& text, int sizeUnit);
+  int measureTextFace(const String& text, TextFace face);
 
  private:
   EPaper* display_ = nullptr;
