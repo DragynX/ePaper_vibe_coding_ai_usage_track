@@ -95,6 +95,9 @@ pio run -e reterminal_e1001 --target upload
 pio run -e reterminal_e1002 --target upload
 pio run -e reterminal_e1003 --target upload
 
+# reTerminal E1003 with Codex on the left and Zai/Zhipu on the right
+pio run -e reterminal_e1003_codex_zai --target upload
+
 # reTerminal E1003 (Simplified Chinese)
 pio run -e reterminal_e1003_zh --target upload
 ```
