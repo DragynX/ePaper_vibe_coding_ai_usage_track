@@ -396,44 +396,46 @@ void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuot
                                   long nowEpoch) {
   drawBox(x, y, w, h, kBg);
   const int pad = kIsLarge ? 18 : 10;
-  const int rowH = kIsLarge ? 38 : 34;
+  const int rowH = kIsLarge ? (UM_LANG_ZH ? 48 : 38) : 34;
+  const int headingGap = kIsLarge ? (UM_LANG_ZH ? 76 : 64) : 58;
   int cy = y + pad;
 
   if (p.local.enabled) {
-    renderer_.drawTextFace("LOCAL USAGE", x + pad, cy, TextFace::SansBold18,
+    renderer_.drawTextFace(uiStr(UiStringId::kLocalUsage), x + pad, cy, TextFace::SansBold18,
                            TextAlign::TopLeft, kText, kBg);
     drawStatusBadge(x + w - pad, cy, p.local.available ? "READY" : p.local.status,
                     !p.local.available);
-    cy += kIsLarge ? 62 : 54;
+    cy += headingGap;
 
     if (!p.local.available) {
-      drawInfoRow(x + pad, cy, w - pad * 2, "STATUS", p.local.status, 2, kBg);
+      drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kStatus), p.local.status, 2, kBg);
       cy += rowH;
-      drawInfoRow(x + pad, cy, w - pad * 2, "FALLBACK", "cloud quota", 2, kBg);
+      drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kFallback),
+                  uiStr(UiStringId::kCloudQuota), 2, kBg);
       return;
     }
 
-    drawInfoRow(x + pad, cy, w - pad * 2, "TODAY TOKENS",
+    drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kTodayTokens),
                 fmtTokens(p.local.todayTokens), 3, kBg);
     cy += rowH;
     if (cy + rowH < y + h) {
-      drawInfoRow(x + pad, cy, w - pad * 2, "IN / OUT",
+      drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kInOut),
                   fmtTokens(p.local.inputTokens) + " / " + fmtTokens(p.local.outputTokens), 2, kBg);
       cy += rowH;
     }
     if (cy + rowH < y + h) {
-      drawInfoRow(x + pad, cy, w - pad * 2, "SESSIONS",
+      drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kSessions),
                   String(p.local.sessionCount), 2, kBg);
       cy += rowH;
     }
     if (cy + rowH < y + h) {
-      drawInfoRow(x + pad, cy, w - pad * 2, "LATEST",
+      drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kLatest),
                   fmtClock(p.local.latestEpoch), 2, kBg);
       cy += rowH + 8;
     }
 
     if (cy + 36 >= y + h) return;
-    renderer_.drawTextFace("TOP MODELS", x + pad, cy, TextFace::SansBold12,
+    renderer_.drawTextFace(uiStr(UiStringId::kTopModels), x + pad, cy, TextFace::SansBold12,
                            TextAlign::TopLeft, kText, kBg);
     cy += 40;
     uint32_t maxTokens = 1;
@@ -455,40 +457,40 @@ void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuot
     return;
   }
 
-  renderer_.drawTextFace("CLOUD SUMMARY", x + pad, cy, TextFace::SansBold18,
+  renderer_.drawTextFace(uiStr(UiStringId::kCloudSummary), x + pad, cy, TextFace::SansBold18,
                          TextAlign::TopLeft, kText, kBg);
   drawStatusBadge(x + w - pad, cy, p.isStale(nowEpoch, 900) ? uiStr(UiStringId::kStale) : "LIVE",
                   p.isStale(nowEpoch, 900));
-  cy += kIsLarge ? 64 : 58;
+  cy += headingGap;
 
-  drawInfoRow(x + pad, cy, w - pad * 2, "STATUS",
-              p.ok ? "quota ready" : "waiting", 2, kBg);
+  drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kStatus),
+              p.ok ? uiStr(UiStringId::kQuotaReady) : uiStr(UiStringId::kWaiting), 2, kBg);
   cy += rowH;
-  drawInfoRow(x + pad, cy, w - pad * 2, "SESSION LEFT",
+  drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kSessionLeft),
               p.session.present ? fmtPercent(p.session.remainingPercent()) : String("--"), 2, kBg);
   cy += rowH;
-  drawInfoRow(x + pad, cy, w - pad * 2, "WEEKLY LEFT",
+  drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kWeeklyLeft),
               p.weekly.present ? fmtPercent(p.weekly.remainingPercent()) : String("--"), 2, kBg);
   cy += rowH;
   if (p.hasPlan && p.planType[0] && cy + rowH < y + h) {
-    drawInfoRow(x + pad, cy, w - pad * 2, "PLAN", p.planType, 2, kBg);
+    drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kPlan), p.planType, 2, kBg);
     cy += rowH;
   }
   if (p.hasBalance && cy + rowH < y + h) {
     char balBuf[20];
     snprintf(balBuf, sizeof(balBuf), "%.2f", p.balance);
-    drawInfoRow(x + pad, cy, w - pad * 2, "BALANCE", balBuf, 2, kBg);
+    drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kBalance), balBuf, 2, kBg);
     cy += rowH;
   }
   if (p.extraEnabled && cy + rowH < y + h) {
     char exBuf[28];
     snprintf(exBuf, sizeof(exBuf), "%.2f / %.2f", p.extraUsedCents / 100.0,
              p.extraLimitCents / 100.0);
-    drawInfoRow(x + pad, cy, w - pad * 2, "EXTRA", exBuf, 2, kBg);
+    drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kExtra), exBuf, 2, kBg);
     cy += rowH;
   }
   if ((p.weeklyOpus.present || p.weeklySonnet.present) && cy + 104 < y + h) {
-    renderer_.drawTextFace("MODEL QUOTAS", x + pad, cy, TextFace::SansBold12,
+    renderer_.drawTextFace(uiStr(UiStringId::kModelQuotas), x + pad, cy, TextFace::SansBold12,
                            TextAlign::TopLeft, kText, kBg);
     cy += 40;
     drawModelRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kWinOpus), p.weeklyOpus);
@@ -497,7 +499,8 @@ void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuot
     cy += 36;
   }
   if (cy + rowH < y + h) {
-    drawInfoRow(x + pad, cy, w - pad * 2, "UPDATED", fmtClock(p.lastSuccessEpoch), 2, kBg);
+    drawInfoRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kUpdated),
+                fmtClock(p.lastSuccessEpoch), 2, kBg);
   }
 }
 

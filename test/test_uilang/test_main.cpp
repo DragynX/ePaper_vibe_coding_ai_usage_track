@@ -10,12 +10,16 @@ void test_en_column_spot_values() {
   TEST_ASSERT_EQUAL_STRING("Usage Monitor", uiStrEn(UiStringId::kAppName));
   TEST_ASSERT_EQUAL_STRING("Session 5h",    uiStrEn(UiStringId::kWinSession));
   TEST_ASSERT_EQUAL_STRING("resets",        uiStrEn(UiStringId::kResets));
+  TEST_ASSERT_EQUAL_STRING("CLOUD SUMMARY", uiStrEn(UiStringId::kCloudSummary));
+  TEST_ASSERT_EQUAL_STRING("SESSION LEFT",  uiStrEn(UiStringId::kSessionLeft));
 }
 
 void test_zh_column_spot_values() {
   TEST_ASSERT_EQUAL_STRING("用量监控屏", uiStrZh(UiStringId::kAppName));
   TEST_ASSERT_EQUAL_STRING("5 小时",     uiStrZh(UiStringId::kWinSession));
   TEST_ASSERT_EQUAL_STRING("重置",       uiStrZh(UiStringId::kResets));
+  TEST_ASSERT_EQUAL_STRING("云端汇总",   uiStrZh(UiStringId::kCloudSummary));
+  TEST_ASSERT_EQUAL_STRING("5小时剩余",  uiStrZh(UiStringId::kSessionLeft));
 }
 
 // The subset font has no CJK punctuation; every zh string must use spaces only.

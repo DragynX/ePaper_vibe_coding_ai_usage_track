@@ -46,6 +46,21 @@ enum class UiStringId {
   kReloginBody,    // re-login notice body
   kNoWifi,         // WiFi unavailable hint
   kNoData,         // no snapshot yet
+  kCloudSummary,   // cloud quota summary title
+  kLocalUsage,     // local stats title
+  kStatus,         // status row label
+  kSessionLeft,    // session remaining row label
+  kWeeklyLeft,     // weekly remaining row label
+  kQuotaReady,     // cloud quota status value
+  kWaiting,        // cloud quota waiting value
+  kFallback,       // fallback row label
+  kCloudQuota,     // fallback row value
+  kTodayTokens,    // local stats today tokens label
+  kInOut,          // local stats input/output label
+  kSessions,       // local stats session count label
+  kLatest,         // local stats latest activity label
+  kTopModels,      // local stats top models title
+  kModelQuotas,    // model quota section title
   kCount
 };
 
@@ -74,6 +89,21 @@ inline const char* uiStrEn(UiStringId id) {
     case UiStringId::kReloginBody:  return "Re-login on your computer then re-flash credentials.";
     case UiStringId::kNoWifi:       return "WiFi unavailable";
     case UiStringId::kNoData:       return "No data yet";
+    case UiStringId::kCloudSummary: return "CLOUD SUMMARY";
+    case UiStringId::kLocalUsage:   return "LOCAL USAGE";
+    case UiStringId::kStatus:       return "STATUS";
+    case UiStringId::kSessionLeft:  return "SESSION LEFT";
+    case UiStringId::kWeeklyLeft:   return "WEEKLY LEFT";
+    case UiStringId::kQuotaReady:   return "quota ready";
+    case UiStringId::kWaiting:      return "waiting";
+    case UiStringId::kFallback:     return "FALLBACK";
+    case UiStringId::kCloudQuota:   return "cloud quota";
+    case UiStringId::kTodayTokens:  return "TODAY TOKENS";
+    case UiStringId::kInOut:        return "IN / OUT";
+    case UiStringId::kSessions:     return "SESSIONS";
+    case UiStringId::kLatest:       return "LATEST";
+    case UiStringId::kTopModels:    return "TOP MODELS";
+    case UiStringId::kModelQuotas:  return "MODEL QUOTAS";
     default:                        return "";
   }
 }
@@ -103,6 +133,21 @@ inline const char* uiStrZh(UiStringId id) {
     case UiStringId::kReloginBody:  return "请在电脑上重新登录后重新写入凭证";
     case UiStringId::kNoWifi:       return "WiFi 不可用";
     case UiStringId::kNoData:       return "暂无数据";
+    case UiStringId::kCloudSummary: return "云端汇总";
+    case UiStringId::kLocalUsage:   return "本地用量";
+    case UiStringId::kStatus:       return "状态";
+    case UiStringId::kSessionLeft:  return "5小时剩余";
+    case UiStringId::kWeeklyLeft:   return "7天剩余";
+    case UiStringId::kQuotaReady:   return "额度正常";
+    case UiStringId::kWaiting:      return "等待数据";
+    case UiStringId::kFallback:     return "回退";
+    case UiStringId::kCloudQuota:   return "云端额度";
+    case UiStringId::kTodayTokens:  return "今日 Token";
+    case UiStringId::kInOut:        return "输入 输出";
+    case UiStringId::kSessions:     return "会话数";
+    case UiStringId::kLatest:       return "最近活动";
+    case UiStringId::kTopModels:    return "模型排行";
+    case UiStringId::kModelQuotas:  return "模型额度";
     default:                        return "";
   }
 }
