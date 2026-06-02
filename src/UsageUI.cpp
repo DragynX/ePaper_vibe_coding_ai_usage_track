@@ -134,8 +134,9 @@ void UsageUI::drawStatusBadge(int x, int y, const String& text, bool alert) {
 void UsageUI::drawInfoRow(int x, int y, int w, const char* label, const String& value,
                           int textSize, uint16_t bg) {
   if (kIsLarge) {
-    renderer_.drawTextFace(label, x, y, TextFace::Sans9, TextAlign::TopLeft, kText, bg);
-    renderer_.drawTextFace(value, x + w, y, TextFace::SansBold9,
+    renderer_.drawTextFace(label, x, y + 3, TextFace::SansBold9,
+                           TextAlign::TopLeft, kText, bg);
+    renderer_.drawTextFace(value, x + w, y, TextFace::SansBold12,
                            TextAlign::TopRight, kText, bg);
     return;
   }
@@ -239,13 +240,13 @@ void UsageUI::drawWrapped(const String& text, int x, int y, int maxW, int lineH,
 void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
   const int w = display_.width();
   const int margin = kIsLarge ? 44 : 24;
-  const int topY = kIsLarge ? 18 : 12;
+  const int topY = kIsLarge ? 14 : 12;
   const int titleSize = kIsLarge ? 4 : 3;
 
   // Left: app title.
   if (kIsLarge) {
     renderer_.drawTextFace(uiStr(UiStringId::kAppName), margin, topY,
-                           TextFace::SansBold18, TextAlign::TopLeft, kText, kBg);
+                           TextFace::SansBold24, TextAlign::TopLeft, kText, kBg);
   } else {
     renderer_.drawText(uiStr(UiStringId::kAppName), margin, topY, titleSize,
                        TextAlign::TopLeft, kText, kBg);
@@ -264,28 +265,28 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
   }
   const int clockSize = kIsLarge ? 3 : 3;
   if (kIsLarge) {
-    renderer_.drawTextFace(clockBuf, w / 2, topY, TextFace::MonoBold12,
+    renderer_.drawTextFace(clockBuf, w / 2, topY - 2, TextFace::SansBold24,
                            TextAlign::TopCenter, kText, kBg);
   } else {
     renderer_.drawText(clockBuf, w / 2, topY, clockSize, TextAlign::TopCenter, kText, kBg);
   }
   if (kIsLarge) {
-    renderer_.drawTextFace(dateBuf, w / 2, topY + 34, TextFace::Sans9,
+    renderer_.drawTextFace(dateBuf, w / 2, topY + 56, TextFace::SansBold12,
                            TextAlign::TopCenter, kText, kBg);
   }
 
   // Right: refresh note + WiFi/battery icons.
-  const int wifiW = kIsLarge ? 34 : 30;
-  const int wifiH = kIsLarge ? 24 : 22;
+  const int wifiW = kIsLarge ? 42 : 30;
+  const int wifiH = kIsLarge ? 30 : 22;
   drawWifiIcon(w - margin - wifiW, topY, wifiW, wifiH, st.wifiConnected, kText);
   if (kIsLarge) {
     renderer_.drawTextFace(uiStr(UiStringId::kRefreshNote), w - margin - wifiW - 16,
-                           topY + 1, TextFace::Sans9, TextAlign::TopRight, kText, kBg);
+                           topY + 3, TextFace::SansBold9, TextAlign::TopRight, kText, kBg);
     if (st.batteryPercent >= 0) {
       drawBatteryIcon(w - margin - wifiW, topY + wifiH + 14, 56, 26,
                       st.batteryPercent, kText);
     }
-    display_.fillRect(margin, topY + 66, w - margin * 2, 2, kLine);
+    display_.fillRect(margin, topY + 94, w - margin * 2, 2, kLine);
   }
 }
 
@@ -384,42 +385,47 @@ void UsageUI::drawReloginColumn(int x, int y, int w, int h, const char* name) {
 void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuota& p,
                                   long nowEpoch) {
   drawBox(x, y, w, h, kBg);
-  const int pad = kIsLarge ? 16 : 10;
+  const int pad = kIsLarge ? 18 : 10;
+  const int rowH = kIsLarge ? 38 : 34;
   int cy = y + pad;
 
   if (p.local.enabled) {
-    renderer_.drawTextFace("LOCAL USAGE", x + pad, cy, TextFace::SansBold12,
+    renderer_.drawTextFace("LOCAL USAGE", x + pad, cy, TextFace::SansBold18,
                            TextAlign::TopLeft, kText, kBg);
     drawStatusBadge(x + w - pad, cy, p.local.available ? "READY" : p.local.status,
                     !p.local.available);
-    cy += 54;
+    cy += kIsLarge ? 62 : 54;
 
     if (!p.local.available) {
       drawInfoRow(x + pad, cy, w - pad * 2, "STATUS", p.local.status, 2, kBg);
-      cy += 34;
+      cy += rowH;
       drawInfoRow(x + pad, cy, w - pad * 2, "FALLBACK", "cloud quota", 2, kBg);
       return;
     }
 
     drawInfoRow(x + pad, cy, w - pad * 2, "TODAY TOKENS",
                 fmtTokens(p.local.todayTokens), 3, kBg);
-    cy += 40;
-    drawInfoRow(x + pad, cy, w - pad * 2, "IN / OUT",
-                fmtTokens(p.local.inputTokens) + " / " + fmtTokens(p.local.outputTokens), 2, kBg);
-    cy += 32;
-    drawInfoRow(x + pad, cy, w - pad * 2, "CACHE",
-                fmtTokens(p.local.cacheTokens), 2, kBg);
-    cy += 32;
-    drawInfoRow(x + pad, cy, w - pad * 2, "SESSIONS",
-                String(p.local.sessionCount), 2, kBg);
-    cy += 32;
-    drawInfoRow(x + pad, cy, w - pad * 2, "LATEST",
-                fmtClock(p.local.latestEpoch), 2, kBg);
-    cy += 44;
+    cy += rowH;
+    if (cy + rowH < y + h) {
+      drawInfoRow(x + pad, cy, w - pad * 2, "IN / OUT",
+                  fmtTokens(p.local.inputTokens) + " / " + fmtTokens(p.local.outputTokens), 2, kBg);
+      cy += rowH;
+    }
+    if (cy + rowH < y + h) {
+      drawInfoRow(x + pad, cy, w - pad * 2, "SESSIONS",
+                  String(p.local.sessionCount), 2, kBg);
+      cy += rowH;
+    }
+    if (cy + rowH < y + h) {
+      drawInfoRow(x + pad, cy, w - pad * 2, "LATEST",
+                  fmtClock(p.local.latestEpoch), 2, kBg);
+      cy += rowH + 8;
+    }
 
-    renderer_.drawTextFace("TOP MODELS", x + pad, cy, TextFace::SansBold9,
+    if (cy + 36 >= y + h) return;
+    renderer_.drawTextFace("TOP MODELS", x + pad, cy, TextFace::SansBold12,
                            TextAlign::TopLeft, kText, kBg);
-    cy += 34;
+    cy += 40;
     uint32_t maxTokens = 1;
     for (uint8_t i = 0; i < p.local.modelCount; ++i) {
       if (p.local.models[i].tokens > maxTokens) maxTokens = p.local.models[i].tokens;
@@ -439,48 +445,50 @@ void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuot
     return;
   }
 
-  renderer_.drawTextFace("CLOUD SUMMARY", x + pad, cy, TextFace::SansBold12,
+  renderer_.drawTextFace("CLOUD SUMMARY", x + pad, cy, TextFace::SansBold18,
                          TextAlign::TopLeft, kText, kBg);
   drawStatusBadge(x + w - pad, cy, p.isStale(nowEpoch, 900) ? uiStr(UiStringId::kStale) : "LIVE",
                   p.isStale(nowEpoch, 900));
-  cy += 58;
+  cy += kIsLarge ? 64 : 58;
 
   drawInfoRow(x + pad, cy, w - pad * 2, "STATUS",
               p.ok ? "quota ready" : "waiting", 2, kBg);
-  cy += 34;
+  cy += rowH;
   drawInfoRow(x + pad, cy, w - pad * 2, "SESSION LEFT",
               p.session.present ? fmtPercent(p.session.remainingPercent()) : String("--"), 2, kBg);
-  cy += 34;
+  cy += rowH;
   drawInfoRow(x + pad, cy, w - pad * 2, "WEEKLY LEFT",
               p.weekly.present ? fmtPercent(p.weekly.remainingPercent()) : String("--"), 2, kBg);
-  cy += 34;
-  if (p.hasPlan && p.planType[0]) {
+  cy += rowH;
+  if (p.hasPlan && p.planType[0] && cy + rowH < y + h) {
     drawInfoRow(x + pad, cy, w - pad * 2, "PLAN", p.planType, 2, kBg);
-    cy += 34;
+    cy += rowH;
   }
-  if (p.hasBalance) {
+  if (p.hasBalance && cy + rowH < y + h) {
     char balBuf[20];
     snprintf(balBuf, sizeof(balBuf), "%.2f", p.balance);
     drawInfoRow(x + pad, cy, w - pad * 2, "BALANCE", balBuf, 2, kBg);
-    cy += 34;
+    cy += rowH;
   }
-  if (p.extraEnabled) {
+  if (p.extraEnabled && cy + rowH < y + h) {
     char exBuf[28];
     snprintf(exBuf, sizeof(exBuf), "%.2f / %.2f", p.extraUsedCents / 100.0,
              p.extraLimitCents / 100.0);
     drawInfoRow(x + pad, cy, w - pad * 2, "EXTRA", exBuf, 2, kBg);
-    cy += 34;
+    cy += rowH;
   }
-  if (p.weeklyOpus.present || p.weeklySonnet.present) {
-    renderer_.drawTextFace("MODEL QUOTAS", x + pad, cy, TextFace::SansBold9,
+  if ((p.weeklyOpus.present || p.weeklySonnet.present) && cy + 104 < y + h) {
+    renderer_.drawTextFace("MODEL QUOTAS", x + pad, cy, TextFace::SansBold12,
                            TextAlign::TopLeft, kText, kBg);
-    cy += 34;
+    cy += 40;
     drawModelRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kWinOpus), p.weeklyOpus);
     cy += 36;
     drawModelRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kWinSonnet), p.weeklySonnet);
     cy += 36;
   }
-  drawInfoRow(x + pad, cy, w - pad * 2, "UPDATED", fmtClock(p.lastSuccessEpoch), 2, kBg);
+  if (cy + rowH < y + h) {
+    drawInfoRow(x + pad, cy, w - pad * 2, "UPDATED", fmtClock(p.lastSuccessEpoch), 2, kBg);
+  }
 }
 
 void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
@@ -493,7 +501,7 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
   if (kIsLarge) {
     drawBox(x, y, w, h, kBg);
     const int pad = 18;
-    const int titleH = 86;
+    const int titleH = 78;
 
     renderer_.drawTextFace(name && name[0] ? name : "Provider", x + pad, y + 18,
                            TextFace::SansBold24, TextAlign::TopLeft, kText, kBg);
@@ -505,7 +513,7 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
     const int cardGap = 12;
     const int cardY = y + titleH + 14;
     const int cardW = (w - pad * 2 - cardGap) / 2;
-    const int cardH = 220;
+    const int cardH = 206;
     drawWindowCard(x + pad, cardY, cardW, cardH, uiStr(UiStringId::kWinSession),
                    p.session, nowEpoch, /*emphasize=*/true);
     drawWindowCard(x + pad + cardW + cardGap, cardY, cardW, cardH,
@@ -513,7 +521,7 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
                    /*emphasize=*/false);
 
     const int detailY = cardY + cardH + 16;
-    const int detailH = 184;
+    const int detailH = 128;
     drawBox(x + pad, detailY, w - pad * 2, detailH, kBg);
     renderer_.drawTextFace("QUOTA DETAILS", x + pad + 14, detailY + 14,
                            TextFace::SansBold12, TextAlign::TopLeft, kText, kBg);
@@ -523,9 +531,9 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
                            TextAlign::TopRight, kText, kBg);
     renderer_.drawTextFace("RESET", x + w - pad - 14, detailY + 18, TextFace::Sans9,
                            TextAlign::TopRight, kText, kBg);
-    drawQuotaDetail(x + pad + 14, detailY + 62, w - pad * 2 - 28,
+    drawQuotaDetail(x + pad + 14, detailY + 52, w - pad * 2 - 28,
                     uiStr(UiStringId::kWinSession), p.session, nowEpoch);
-    drawQuotaDetail(x + pad + 14, detailY + 122, w - pad * 2 - 28,
+    drawQuotaDetail(x + pad + 14, detailY + 94, w - pad * 2 - 28,
                     uiStr(UiStringId::kWinWeekly), p.weekly, nowEpoch);
 
     const int localY = detailY + detailH + 16;
@@ -613,7 +621,7 @@ void UsageUI::drawDashboard(const UsageSnapshot& snap, const UiStatus& st, long 
   display_.fillSprite(kBg);
   drawHeader(st, nowEpoch);
 
-  const int headerH = kIsLarge ? 104 : 70;
+  const int headerH = kIsLarge ? 124 : 70;
   const int footerH = kIsLarge ? 34 : 0;
   const int colTop = headerH;
   const int colH = h - headerH - footerH;
