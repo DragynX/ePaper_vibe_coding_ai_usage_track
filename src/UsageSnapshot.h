@@ -11,6 +11,26 @@ namespace usage_monitor {
 
 enum class ProviderId { kClaude, kCodex, kCopilot, kMiniMax, kKimi, kZai };
 
+struct LocalModelStat {
+  char name[24] = {0};
+  uint32_t tokens = 0;
+  uint16_t count = 0;
+};
+
+struct LocalProviderStats {
+  bool enabled = false;
+  bool available = false;
+  char status[24] = {0};
+  uint32_t todayTokens = 0;
+  uint32_t inputTokens = 0;
+  uint32_t outputTokens = 0;
+  uint32_t cacheTokens = 0;
+  uint16_t sessionCount = 0;
+  long latestEpoch = 0;
+  uint8_t modelCount = 0;
+  LocalModelStat models[3];
+};
+
 // One rate-limit window (5-hour session or 7-day weekly).
 struct WindowQuota {
   bool        present = false;        // the field existed in the response
@@ -42,6 +62,7 @@ struct ProviderQuota {
 
   bool   hasPlan = false;
   char   planType[16] = {0};          // "plus" / "pro" / "free" / ... from the API
+  LocalProviderStats local;
 
   // Stale when the last fetch failed, never succeeded, or is older than ttlSec.
   bool isStale(long nowEpoch, long ttlSec) const {

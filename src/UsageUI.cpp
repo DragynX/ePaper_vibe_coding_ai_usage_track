@@ -62,6 +62,35 @@ uint16_t statusColor(QuotaStatus s) {
 // True when this panel is the large E1003; small panels use a tighter layout.
 constexpr bool kIsLarge = (UM_SCREEN_MODE == UM_SCREEN_GRAY16);
 
+String fmtPercent(double pct) {
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%d%%", static_cast<int>(pct + 0.5));
+  return String(buf);
+}
+
+String fmtTokens(uint32_t tokens) {
+  char buf[18];
+  if (tokens >= 1000000UL) {
+    snprintf(buf, sizeof(buf), "%.1fM", tokens / 1000000.0);
+  } else if (tokens >= 1000UL) {
+    snprintf(buf, sizeof(buf), "%.1fK", tokens / 1000.0);
+  } else {
+    snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(tokens));
+  }
+  return String(buf);
+}
+
+String fmtClock(long epoch) {
+  if (epoch <= 0) return "--:--";
+  time_t t = static_cast<time_t>(epoch);
+  struct tm lt;
+  localtime_r(&t, &lt);
+  char buf[18];
+  snprintf(buf, sizeof(buf), "%02d/%02d %02d:%02d", lt.tm_mon + 1, lt.tm_mday,
+           lt.tm_hour, lt.tm_min);
+  return String(buf);
+}
+
 }  // namespace
 
 void UsageUI::begin() {
@@ -84,6 +113,38 @@ void UsageUI::drawProgressBar(int x, int y, int w, int h, double pct,
   display_.fillRoundRect(x, y, w, h, h / 2, track);
   const int fillW = static_cast<int>((w - 4) * pct / 100.0 + 0.5);
   if (fillW > 0) display_.fillRoundRect(x + 2, y + 2, fillW, h - 4, (h - 4) / 2, fg);
+}
+
+void UsageUI::drawBox(int x, int y, int w, int h, uint16_t fill) {
+  display_.fillRect(x, y, w, h, fill);
+  display_.drawRect(x, y, w, h, kLine);
+}
+
+void UsageUI::drawInfoRow(int x, int y, int w, const char* label, const String& value,
+                          int textSize, uint16_t bg) {
+  renderer_.drawText(label, x, y, textSize, TextAlign::TopLeft, kMuted, bg);
+  renderer_.drawText(value, x + w, y, textSize, TextAlign::TopRight, kText, bg);
+}
+
+void UsageUI::drawQuotaDetail(int x, int y, int w, const char* label,
+                              const WindowQuota& win, long nowEpoch) {
+  renderer_.drawText(label, x, y, 2, TextAlign::TopLeft, kText, kBg);
+  if (!win.present) {
+    renderer_.drawText("--", x + w, y, 2, TextAlign::TopRight, kMuted, kBg);
+    return;
+  }
+
+  char usedBuf[16];
+  snprintf(usedBuf, sizeof(usedBuf), "%d%%", static_cast<int>(win.usedPercent + 0.5));
+  renderer_.drawText(usedBuf, x + w / 3, y, 2, TextAlign::TopRight, kMuted, kBg);
+  renderer_.drawText(fmtPercent(win.remainingPercent()), x + w * 2 / 3, y, 2,
+                     TextAlign::TopRight, kText, kBg);
+  const String resetText = win.resetEpoch > 0 ? fmtClock(win.resetEpoch) : String("--");
+  renderer_.drawText(resetText, x + w, y, 2, TextAlign::TopRight, kMuted, kBg);
+
+  const int barY = y + 24;
+  drawProgressBar(x, barY, w, kIsLarge ? 10 : 8, win.usedPercent,
+                  statusColor(win.status), kTrack);
 }
 
 void UsageUI::drawWifiIcon(int x, int y, int w, int h, bool connected, uint16_t color) {
@@ -143,9 +204,9 @@ void UsageUI::drawWrapped(const String& text, int x, int y, int maxW, int lineH,
 
 void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
   const int w = display_.width();
-  const int margin = kIsLarge ? 70 : 24;
-  const int topY = kIsLarge ? 24 : 12;
-  const int titleSize = kIsLarge ? 5 : 3;
+  const int margin = kIsLarge ? 44 : 24;
+  const int topY = kIsLarge ? 18 : 12;
+  const int titleSize = kIsLarge ? 4 : 3;
 
   // Left: app title.
   renderer_.drawText(uiStr(UiStringId::kAppName), margin, topY, titleSize,
@@ -162,30 +223,32 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     snprintf(dateBuf, sizeof(dateBuf), "%04d/%02d/%02d",
              lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday);
   }
-  const int clockSize = kIsLarge ? 5 : 3;
+  const int clockSize = kIsLarge ? 3 : 3;
   renderer_.drawText(clockBuf, w / 2, topY, clockSize, TextAlign::TopCenter, kText, kBg);
   if (kIsLarge) {
-    renderer_.drawText(dateBuf, w / 2, topY + clockSize * 8 + 12, 3,
+    renderer_.drawText(dateBuf, w / 2, topY + 34, 2,
                        TextAlign::TopCenter, kMuted, kBg);
   }
 
   // Right: refresh note + WiFi/battery icons.
-  const int wifiW = kIsLarge ? 44 : 30;
-  const int wifiH = kIsLarge ? 32 : 22;
+  const int wifiW = kIsLarge ? 34 : 30;
+  const int wifiH = kIsLarge ? 24 : 22;
   drawWifiIcon(w - margin - wifiW, topY, wifiW, wifiH, st.wifiConnected, kText);
   if (kIsLarge) {
-    renderer_.drawText(uiStr(UiStringId::kRefreshNote), w - margin - wifiW - 16, topY + 4,
+    renderer_.drawText(uiStr(UiStringId::kRefreshNote), w - margin - wifiW - 16, topY + 2,
                        2, TextAlign::TopRight, kMuted, kBg);
     if (st.batteryPercent >= 0) {
       drawBatteryIcon(w - margin - wifiW, topY + wifiH + 14, 56, 26,
                       st.batteryPercent, kText);
     }
+    display_.fillRect(margin, topY + 66, w - margin * 2, 2, kLine);
   }
 }
 
 void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
                              const WindowQuota& win, long nowEpoch, bool emphasize) {
-  display_.fillRoundRect(x, y, w, h, kIsLarge ? 12 : 8, kCard);
+  display_.fillRoundRect(x, y, w, h, kIsLarge ? 4 : 8, kCard);
+  display_.drawRect(x, y, w, h, kLine);
   const int pad = kIsLarge ? 18 : 10;
 
   // Top row: window label (left) + "left" (right).
@@ -257,10 +320,155 @@ void UsageUI::drawReloginColumn(int x, int y, int w, int h, const char* name) {
               w, kIsLarge ? 40 : 30, kIsLarge ? 3 : 2, kText, 4);
 }
 
+void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuota& p,
+                                  long nowEpoch) {
+  drawBox(x, y, w, h, kBg);
+  const int pad = kIsLarge ? 16 : 10;
+  int cy = y + pad;
+
+  if (p.local.enabled) {
+    renderer_.drawText("LOCAL USAGE", x + pad, cy, 3, TextAlign::TopLeft, kText, kBg);
+    renderer_.drawText(p.local.available ? "READY" : p.local.status, x + w - pad, cy + 4,
+                       2, TextAlign::TopRight, p.local.available ? kMuted : kCrit, kBg);
+    cy += 44;
+
+    if (!p.local.available) {
+      drawInfoRow(x + pad, cy, w - pad * 2, "STATUS", p.local.status, 2, kBg);
+      cy += 34;
+      drawInfoRow(x + pad, cy, w - pad * 2, "FALLBACK", "cloud quota", 2, kBg);
+      return;
+    }
+
+    drawInfoRow(x + pad, cy, w - pad * 2, "TODAY TOKENS",
+                fmtTokens(p.local.todayTokens), 3, kBg);
+    cy += 40;
+    drawInfoRow(x + pad, cy, w - pad * 2, "IN / OUT",
+                fmtTokens(p.local.inputTokens) + " / " + fmtTokens(p.local.outputTokens), 2, kBg);
+    cy += 32;
+    drawInfoRow(x + pad, cy, w - pad * 2, "CACHE",
+                fmtTokens(p.local.cacheTokens), 2, kBg);
+    cy += 32;
+    drawInfoRow(x + pad, cy, w - pad * 2, "SESSIONS",
+                String(p.local.sessionCount), 2, kBg);
+    cy += 32;
+    drawInfoRow(x + pad, cy, w - pad * 2, "LATEST",
+                fmtClock(p.local.latestEpoch), 2, kBg);
+    cy += 44;
+
+    renderer_.drawText("TOP MODELS", x + pad, cy, 2, TextAlign::TopLeft, kText, kBg);
+    cy += 30;
+    uint32_t maxTokens = 1;
+    for (uint8_t i = 0; i < p.local.modelCount; ++i) {
+      if (p.local.models[i].tokens > maxTokens) maxTokens = p.local.models[i].tokens;
+    }
+    for (uint8_t i = 0; i < p.local.modelCount && cy + 34 < y + h; ++i) {
+      const LocalModelStat& m = p.local.models[i];
+      renderer_.drawText(m.name[0] ? m.name : "unknown", x + pad, cy, 2,
+                         TextAlign::TopLeft, kText, kBg);
+      renderer_.drawText(fmtTokens(m.tokens), x + w - pad, cy, 2,
+                         TextAlign::TopRight, kMuted, kBg);
+      const int barW = w - pad * 2;
+      const int fill = static_cast<int>(barW * (static_cast<double>(m.tokens) / maxTokens));
+      display_.fillRect(x + pad, cy + 24, barW, 8, kTrack);
+      if (fill > 0) display_.fillRect(x + pad, cy + 24, fill, 8, kText);
+      cy += 44;
+    }
+    return;
+  }
+
+  renderer_.drawText("CLOUD SUMMARY", x + pad, cy, 3, TextAlign::TopLeft, kText, kBg);
+  renderer_.drawText(p.isStale(nowEpoch, 900) ? uiStr(UiStringId::kStale) : "LIVE",
+                     x + w - pad, cy + 4, 2, TextAlign::TopRight,
+                     p.isStale(nowEpoch, 900) ? kCrit : kMuted, kBg);
+  cy += 46;
+
+  drawInfoRow(x + pad, cy, w - pad * 2, "STATUS",
+              p.ok ? "quota ready" : "waiting", 2, kBg);
+  cy += 34;
+  drawInfoRow(x + pad, cy, w - pad * 2, "SESSION LEFT",
+              p.session.present ? fmtPercent(p.session.remainingPercent()) : String("--"), 2, kBg);
+  cy += 34;
+  drawInfoRow(x + pad, cy, w - pad * 2, "WEEKLY LEFT",
+              p.weekly.present ? fmtPercent(p.weekly.remainingPercent()) : String("--"), 2, kBg);
+  cy += 34;
+  if (p.hasPlan && p.planType[0]) {
+    drawInfoRow(x + pad, cy, w - pad * 2, "PLAN", p.planType, 2, kBg);
+    cy += 34;
+  }
+  if (p.hasBalance) {
+    char balBuf[20];
+    snprintf(balBuf, sizeof(balBuf), "%.2f", p.balance);
+    drawInfoRow(x + pad, cy, w - pad * 2, "BALANCE", balBuf, 2, kBg);
+    cy += 34;
+  }
+  if (p.extraEnabled) {
+    char exBuf[28];
+    snprintf(exBuf, sizeof(exBuf), "%.2f / %.2f", p.extraUsedCents / 100.0,
+             p.extraLimitCents / 100.0);
+    drawInfoRow(x + pad, cy, w - pad * 2, "EXTRA", exBuf, 2, kBg);
+    cy += 34;
+  }
+  if (p.weeklyOpus.present || p.weeklySonnet.present) {
+    renderer_.drawText("MODEL QUOTAS", x + pad, cy, 2, TextAlign::TopLeft, kText, kBg);
+    cy += 30;
+    drawModelRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kWinOpus), p.weeklyOpus);
+    cy += 36;
+    drawModelRow(x + pad, cy, w - pad * 2, uiStr(UiStringId::kWinSonnet), p.weeklySonnet);
+    cy += 36;
+  }
+  drawInfoRow(x + pad, cy, w - pad * 2, "UPDATED", fmtClock(p.lastSuccessEpoch), 2, kBg);
+}
+
 void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
                                  const ProviderQuota& p, long nowEpoch) {
   if (p.needsRelogin) {
     drawReloginColumn(x, y, w, h, name);
+    return;
+  }
+
+  if (kIsLarge) {
+    drawBox(x, y, w, h, kBg);
+    const int pad = 18;
+    const int titleH = 66;
+
+    renderer_.drawText(name && name[0] ? name : "Provider", x + pad, y + 14, 4,
+                       TextAlign::TopLeft, kText, kBg);
+    renderer_.drawText(p.isStale(nowEpoch, 900) ? uiStr(UiStringId::kStale) : "LIVE",
+                       x + w - pad, y + 22, 2, TextAlign::TopRight,
+                       p.isStale(nowEpoch, 900) ? kCrit : kMuted, kBg);
+    display_.fillRect(x, y + titleH, w, 1, kLine);
+
+    const int cardGap = 12;
+    const int cardY = y + titleH + 14;
+    const int cardW = (w - pad * 2 - cardGap) / 2;
+    const int cardH = 196;
+    drawWindowCard(x + pad, cardY, cardW, cardH, uiStr(UiStringId::kWinSession),
+                   p.session, nowEpoch, /*emphasize=*/true);
+    drawWindowCard(x + pad + cardW + cardGap, cardY, cardW, cardH,
+                   uiStr(UiStringId::kWinWeekly), p.weekly, nowEpoch,
+                   /*emphasize=*/false);
+
+    const int detailY = cardY + cardH + 16;
+    const int detailH = 164;
+    drawBox(x + pad, detailY, w - pad * 2, detailH, kBg);
+    renderer_.drawText("QUOTA DETAILS", x + pad + 14, detailY + 12, 2,
+                       TextAlign::TopLeft, kText, kBg);
+    renderer_.drawText("USED", x + w / 2 - 10, detailY + 12, 2,
+                       TextAlign::TopRight, kMuted, kBg);
+    renderer_.drawText("LEFT", x + w - pad - 140, detailY + 12, 2,
+                       TextAlign::TopRight, kMuted, kBg);
+    renderer_.drawText("RESET", x + w - pad - 14, detailY + 12, 2,
+                       TextAlign::TopRight, kMuted, kBg);
+    drawQuotaDetail(x + pad + 14, detailY + 46, w - pad * 2 - 28,
+                    uiStr(UiStringId::kWinSession), p.session, nowEpoch);
+    drawQuotaDetail(x + pad + 14, detailY + 98, w - pad * 2 - 28,
+                    uiStr(UiStringId::kWinWeekly), p.weekly, nowEpoch);
+
+    const int localY = detailY + detailH + 16;
+    const int localH = h - (localY - y) - pad;
+    if (localH > 80) {
+      drawLocalStatsBlock(x + pad, localY, w - pad * 2, localH, p, nowEpoch);
+    }
     return;
   }
 
@@ -336,16 +544,16 @@ void UsageUI::drawBoot(const String& statusText, const UiStatus& st, long nowEpo
 void UsageUI::drawDashboard(const UsageSnapshot& snap, const UiStatus& st, long nowEpoch) {
   const int w = display_.width();
   const int h = display_.height();
-  const int margin = kIsLarge ? 80 : 20;
+  const int margin = kIsLarge ? 44 : 20;
 
   display_.fillSprite(kBg);
   drawHeader(st, nowEpoch);
 
-  const int headerH = kIsLarge ? 170 : 70;
-  const int footerH = kIsLarge ? 60 : 0;
+  const int headerH = kIsLarge ? 104 : 70;
+  const int footerH = kIsLarge ? 34 : 0;
   const int colTop = headerH;
   const int colH = h - headerH - footerH;
-  const int colGap = kIsLarge ? 40 : 16;
+  const int colGap = kIsLarge ? 24 : 16;
   const int colW = (w - margin * 2 - colGap) / 2;
 
   // Vertical divider between the two columns (large panels only).
@@ -367,7 +575,7 @@ void UsageUI::drawDashboard(const UsageSnapshot& snap, const UiStatus& st, long 
     char foot[48];
     snprintf(foot, sizeof(foot), "%s %02d:%02d  -  %s", uiStr(UiStringId::kUpdated),
              lt.tm_hour, lt.tm_min, uiStr(UiStringId::kRefreshNote));
-    renderer_.drawText(foot, w / 2, h - 36, 2, TextAlign::TopCenter, kMuted, kBg);
+    renderer_.drawText(foot, w / 2, h - 28, 2, TextAlign::TopCenter, kMuted, kBg);
   }
 
   display_.update();

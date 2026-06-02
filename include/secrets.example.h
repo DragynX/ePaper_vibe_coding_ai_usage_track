@@ -36,3 +36,7 @@
 // --- Zai / Zhipu (API key; endpoint: api.z.ai / open.bigmodel.cn / dev.bigmodel.cn) ---
 #define UM_ZAI_API_KEY          "placeholder"
 #define UM_ZAI_ENDPOINT         "https://api.z.ai"
+
+// Optional computer-side local stats service. Enable the feature in
+// platformio.ini with -D UM_ENABLE_LOCAL_STATS before this URL is used.
+#define UM_LOCAL_STATS_URL      "http://10.10.50.65:8787"

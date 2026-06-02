@@ -18,6 +18,10 @@
 #include "UsageApp.h"
 #include "secrets.h"
 
+#ifndef UM_LOCAL_STATS_URL
+  #define UM_LOCAL_STATS_URL ""
+#endif
+
 using namespace usage_monitor;
 
 static const UsageConfig kConfig = {
@@ -41,6 +45,7 @@ static const UsageConfig kConfig = {
   .kimiAuthToken      = UM_KIMI_AUTH_TOKEN,
   .zaiApiKey          = UM_ZAI_API_KEY,
   .zaiEndpoint        = UM_ZAI_ENDPOINT,
+  .localStatsUrl      = UM_LOCAL_STATS_URL,
 
   .httpTimeoutMs      = 45000,
   .refreshIntervalMs  = 300000UL,   // 5 minutes

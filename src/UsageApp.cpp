@@ -34,6 +34,11 @@ static void seedStaticKey(AuthState& st, const char* key) {
 
 UsageApp::UsageApp(const UsageConfig& config) : config_(config) {}
 
+void UsageApp::setProviderNames() {
+  strncpy(snapshot_.left.name, UM_LEFT_NAME, sizeof(snapshot_.left.name) - 1);
+  strncpy(snapshot_.right.name, UM_RIGHT_NAME, sizeof(snapshot_.right.name) - 1);
+}
+
 void UsageApp::begin() {
   Serial1.begin(115200, SERIAL_8N1, 44, 43);
   delay(300);
@@ -98,8 +103,10 @@ void UsageApp::begin() {
   rightClient_.configure(&rightOAuth_);
 #endif
 
-  strncpy(snapshot_.left.name, UM_LEFT_NAME, sizeof(snapshot_.left.name) - 1);
-  strncpy(snapshot_.right.name, UM_RIGHT_NAME, sizeof(snapshot_.right.name) - 1);
+  setProviderNames();
+#if defined(UM_ENABLE_LOCAL_STATS)
+  localStats_.configure(&http_, config_.localStatsUrl);
+#endif
 
   ui_.begin();
   ui_.drawBoot(uiStr(UiStringId::kBootWifi), currentStatus(), now());
@@ -176,6 +183,7 @@ void UsageApp::fetchLeft(long n) {
   } else if (snapshot_.left.needsRelogin) {
     Serial1.printf("[%s] needs relogin\n", UM_LEFT_NAME);
   }
+  setProviderNames();
 }
 
 void UsageApp::fetchRight(long n) {
@@ -189,12 +197,24 @@ void UsageApp::fetchRight(long n) {
   } else if (snapshot_.right.needsRelogin) {
     Serial1.printf("[%s] needs relogin\n", UM_RIGHT_NAME);
   }
+  setProviderNames();
+}
+
+void UsageApp::fetchLocalStats() {
+#if defined(UM_ENABLE_LOCAL_STATS)
+  localStats_.fetch(UM_LEFT_KEY, UM_RIGHT_KEY, snapshot_);
+#else
+  snapshot_.left.local = LocalProviderStats();
+  snapshot_.right.local = LocalProviderStats();
+#endif
 }
 
 void UsageApp::refreshAll() {
   const long n = now();
   fetchLeft(n);
   fetchRight(n);
+  fetchLocalStats();
+  setProviderNames();
   printSnapshot();
   ui_.drawDashboard(snapshot_, currentStatus(), now());
 }

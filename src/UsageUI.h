@@ -67,6 +67,14 @@ class UsageUI {
 
   // Re-login notice filling a provider column (refresh token revoked).
   void drawReloginColumn(int x, int y, int w, int h, const char* name);
+
+  void drawBox(int x, int y, int w, int h, uint16_t fill);
+  void drawInfoRow(int x, int y, int w, const char* label, const String& value,
+                   int textSize, uint16_t bg);
+  void drawQuotaDetail(int x, int y, int w, const char* label,
+                       const WindowQuota& win, long nowEpoch);
+  void drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuota& p,
+                           long nowEpoch);
 };
 
 }  // namespace usage_monitor

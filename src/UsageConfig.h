@@ -38,6 +38,8 @@ struct UsageConfig {
   const char* zaiApiKey;
   const char* zaiEndpoint;         // "https://api.z.ai" / "https://open.bigmodel.cn"
 
+  const char* localStatsUrl;       // optional computer-side stats service
+
   uint32_t httpTimeoutMs;
   uint32_t refreshIntervalMs;      // poll cadence (>= 5 min recommended)
 };

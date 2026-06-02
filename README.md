@@ -1,24 +1,26 @@
 # UsageMonitor
 
-> A standalone e-paper desk display for your Claude Code and Codex usage quotas. The device connects to WiFi and talks directly to the provider APIs — no companion app, no PC left running.
+> An e-paper desk display for AI coding assistant usage quotas. By default the device talks directly to provider APIs. An optional computer-side local stats service can add today-token and model-breakdown panels.
 
 English · [简体中文](README.zh-CN.md)
 
 ## What It Shows
 
-A two-column dashboard (Codex on the left, Claude on the right). For each provider:
+A dense two-column dashboard. The selected left and right providers are compile-time choices in `platformio.ini`; each column clearly labels its provider. For each provider:
 
 - **Session (5h)** — the rolling 5-hour window: big remaining %, a used-% bar, and a reset countdown. This is the largest element.
 - **Weekly (7d)** — the 7-day window, same layout, secondary emphasis.
-- **Claude only**: Sonnet and Opus 7-day usage rows.
-- **Codex only**: credits balance.
-- **Plan** (Plus / Pro / Free) and, for Claude, extra-usage spend.
+- **Quota details** — a compact table with used %, remaining %, and reset time.
+- **Provider-specific extras** — balance, plan, extra spend, or model quota rows when available.
+- **Optional local usage** — today tokens, input/output/cache split, sessions, latest activity, and top models when the local stats service is enabled.
 
 A footer shows when the data was last updated. If a fetch is stale or a sign-in expired, the affected column says so.
 
-### What it does NOT show, and why
+### Local stats mode
 
-The device reads usage **directly from the provider cloud APIs**, which expose rate-limit windows, credits, and plan — but not per-token counts, per-model token totals, request/conversation counts, or a calendar-day total. Those numbers only exist in the local CLI logs on your computer and would require a companion service. This project is intentionally self-contained, so it shows what the device can fetch on its own.
+Without the local stats service, the device shows only cloud quota data. With the service enabled, the computer reads local CLI logs and exposes a unified `/v1/snapshot` JSON endpoint for all firmware-supported providers: Claude, Codex, Copilot, MiniMax, Kimi, and Zai.
+
+The service never invents missing data. Providers with no readable local log source return `available=false`, and the device falls back to the cloud quota layout.
 
 ## How It Works
 
@@ -26,12 +28,15 @@ The device reads usage **directly from the provider cloud APIs**, which expose r
 flowchart LR
   A[Boot] --> B[Connect WiFi]
   B --> C[NTP time sync]
-  C --> D[Fetch Claude usage]
-  C --> E[Fetch Codex usage]
+  C --> D[Fetch left provider quota]
+  C --> E[Fetch right provider quota]
+  C -. optional .-> L[Fetch local stats service]
   D --> F[Render dashboard]
   E --> F
+  L --> F
   G[Every 5 min] --> D
   G --> E
+  G -. optional .-> L
 ```
 
 The device holds OAuth tokens, calls each provider's usage endpoint over HTTPS, refreshes its own bearer tokens when they expire, and persists rotated tokens to NVS. On a fetch failure it keeps showing the last good snapshot, marked stale.
@@ -43,11 +48,13 @@ The device holds OAuth tokens, calls each provider's usage endpoint over HTTPS, 
 | `HttpClient.*` | HTTPS transport (response headers, Retry-After) |
 | `OAuthClient.*` | Authed request with refresh-then-retry |
 | `TokenStore.*` | NVS persistence of rotated tokens |
-| `ClaudeUsageClient.*` / `CodexUsageClient.*` | Per-provider adapters |
+| `*UsageClient.*` | Per-provider quota adapters |
+| `LocalStatsClient.*` | Optional computer-side local stats fetcher |
 | `UsageUI.*` | E-paper drawing |
 | `TextRenderer.*` | English bitmap font / Chinese OpenFontRender |
 | `UiLang.h` | Fixed UI strings and language selection |
 | `QuotaMath.h` / `TimeFormat.h` / `IsoTime.h` / `HeaderField.h` / `UsageSnapshot.h` | Pure logic (native-tested) |
+| `local_stats_service/` | Optional Python service for local CLI-log stats |
 
 ## Supported Hardware
 
@@ -98,6 +105,9 @@ pio run -e reterminal_e1003 --target upload
 # reTerminal E1003 with Codex on the left and Zai/Zhipu on the right
 pio run -e reterminal_e1003_codex_zai --target upload
 
+# Same display pair, with optional computer-side local stats enabled
+pio run -e reterminal_e1003_codex_zai_local --target upload
+
 # reTerminal E1003 (Simplified Chinese)
 pio run -e reterminal_e1003_zh --target upload
 ```
@@ -107,6 +117,28 @@ The Chinese font is embedded into the firmware at build time, so a single `uploa
 ```sh
 pio device monitor
 ```
+
+### 4. Optional local stats service
+
+Start the service on the computer that stores your CLI logs:
+
+```sh
+python3 local_stats_service/server.py --host 0.0.0.0 --port 8787
+```
+
+Set `UM_LOCAL_STATS_URL` in `src/secrets.h` to the computer's LAN address, for example:
+
+```cpp
+#define UM_LOCAL_STATS_URL "http://10.10.50.65:8787"
+```
+
+Then build an environment that defines `UM_ENABLE_LOCAL_STATS`, for example:
+
+```sh
+pio run -e reterminal_e1003_codex_zai_local --target upload
+```
+
+By default the service scans known CLI directories such as `~/.claude/projects` and `~/.codex`. You can override any provider log root with environment variables like `UM_LOCAL_CLAUDE_LOG_DIR` or `UM_LOCAL_CODEX_LOG_DIR`.
 
 ## Development
 
@@ -119,5 +151,6 @@ pio test -e native
 ## Security Notes
 
 - Keep real WiFi passwords and OAuth tokens only in `src/secrets.h`.
+- The local stats service listens on your LAN when started with `--host 0.0.0.0`; run it only on a trusted network.
 - The HTTPS calls use simplified certificate handling (`setInsecure()`) for developer convenience. Production firmware should pin a CA certificate for `api.anthropic.com`, `platform.claude.com`, `chatgpt.com`, and `auth.openai.com`.
 - The usage endpoints are not official public APIs; they are derived from the CLIs and may change when the CLIs update. The firmware degrades to the last good snapshot when a call fails.

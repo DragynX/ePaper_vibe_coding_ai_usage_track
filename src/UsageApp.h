@@ -8,6 +8,9 @@
 #include <Arduino.h>
 
 #include "HttpClient.h"
+#if defined(UM_ENABLE_LOCAL_STATS)
+  #include "LocalStatsClient.h"
+#endif
 #include "OAuthClient.h"
 #include "ProviderSelect.h"
 #include "TokenStore.h"
@@ -50,16 +53,21 @@ class UsageApp {
   void refreshAll();
   void printSnapshot();
   UiStatus currentStatus();
+  void setProviderNames();
 
   // Fetch one side into the snapshot and persist tokens if refreshed.
   void fetchLeft(long nowEpoch);
   void fetchRight(long nowEpoch);
+  void fetchLocalStats();
 
   UsageConfig config_;
   HttpClient http_;
   TokenStore store_;
   UsageUI ui_;
   UsageSnapshot snapshot_;
+#if defined(UM_ENABLE_LOCAL_STATS)
+  LocalStatsClient localStats_;
+#endif
   unsigned long lastRefreshMs_ = 0;
   bool timeSynced_ = false;
 
