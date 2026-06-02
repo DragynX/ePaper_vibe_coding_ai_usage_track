@@ -144,8 +144,8 @@ void UsageUI::drawInfoRow(int x, int y, int w, const char* label, const String& 
   renderer_.drawText(value, x + w, y, textSize, TextAlign::TopRight, kText, bg);
 }
 
-void UsageUI::drawQuotaDetail(int x, int y, int w, const char* label,
-                              const WindowQuota& win, long nowEpoch) {
+void UsageUI::drawQuotaDetail(int x, int y, int w, int usedX, int leftX, int resetX,
+                              const char* label, const WindowQuota& win, long nowEpoch) {
   if (kIsLarge) {
     renderer_.drawTextFace(label, x, y, TextFace::SansBold9,
                            TextAlign::TopLeft, kText, kBg);
@@ -160,10 +160,10 @@ void UsageUI::drawQuotaDetail(int x, int y, int w, const char* label,
   char usedBuf[16];
   snprintf(usedBuf, sizeof(usedBuf), "%d%%", static_cast<int>(win.usedPercent + 0.5));
   if (kIsLarge) {
-    renderer_.drawTextFace(usedBuf, x + w / 3, y, TextFace::Sans9,
-                           TextAlign::TopRight, kText, kBg);
-    renderer_.drawTextFace(fmtPercent(win.remainingPercent()), x + w * 2 / 3, y,
-                           TextFace::SansBold9, TextAlign::TopRight, kText, kBg);
+    renderer_.drawTextFace(usedBuf, usedX, y, TextFace::Sans9,
+                           TextAlign::TopCenter, kText, kBg);
+    renderer_.drawTextFace(fmtPercent(win.remainingPercent()), leftX, y,
+                           TextFace::SansBold9, TextAlign::TopCenter, kText, kBg);
   } else {
     renderer_.drawText(usedBuf, x + w / 3, y, 2, TextAlign::TopRight, kText, kBg);
     renderer_.drawText(fmtPercent(win.remainingPercent()), x + w * 2 / 3, y, 2,
@@ -171,7 +171,7 @@ void UsageUI::drawQuotaDetail(int x, int y, int w, const char* label,
   }
   const String resetText = win.resetEpoch > 0 ? fmtClock(win.resetEpoch) : String("--");
   if (kIsLarge) {
-    renderer_.drawTextFace(resetText, x + w, y, TextFace::Sans9,
+    renderer_.drawTextFace(resetText, resetX, y, TextFace::Sans9,
                            TextAlign::TopRight, kText, kBg);
   } else {
     renderer_.drawText(resetText, x + w, y, 2, TextAlign::TopRight, kText, kBg);
@@ -533,18 +533,23 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
 
     const int detailY = cardY + cardH + 16;
     const int detailH = 128;
+    const int detailX = x + pad + 14;
+    const int detailW = w - pad * 2 - 28;
+    const int resetX = detailX + detailW;
+    const int leftX = resetX - 230;
+    const int usedX = leftX - 270;
     drawBox(x + pad, detailY, w - pad * 2, detailH, kBg);
-    renderer_.drawTextFace("QUOTA DETAILS", x + pad + 14, detailY + 14,
+    renderer_.drawTextFace("QUOTA DETAILS", detailX, detailY + 14,
                            TextFace::SansBold12, TextAlign::TopLeft, kText, kBg);
-    renderer_.drawTextFace("USED", x + w / 2 - 10, detailY + 18, TextFace::Sans9,
+    renderer_.drawTextFace("USED", usedX, detailY + 18, TextFace::Sans9,
+                           TextAlign::TopCenter, kText, kBg);
+    renderer_.drawTextFace("LEFT", leftX, detailY + 18, TextFace::Sans9,
+                           TextAlign::TopCenter, kText, kBg);
+    renderer_.drawTextFace("RESET", resetX, detailY + 18, TextFace::Sans9,
                            TextAlign::TopRight, kText, kBg);
-    renderer_.drawTextFace("LEFT", x + w - pad - 140, detailY + 18, TextFace::Sans9,
-                           TextAlign::TopRight, kText, kBg);
-    renderer_.drawTextFace("RESET", x + w - pad - 14, detailY + 18, TextFace::Sans9,
-                           TextAlign::TopRight, kText, kBg);
-    drawQuotaDetail(x + pad + 14, detailY + 52, w - pad * 2 - 28,
+    drawQuotaDetail(detailX, detailY + 52, detailW, usedX, leftX, resetX,
                     uiStr(UiStringId::kWinSession), p.session, nowEpoch);
-    drawQuotaDetail(x + pad + 14, detailY + 94, w - pad * 2 - 28,
+    drawQuotaDetail(detailX, detailY + 94, detailW, usedX, leftX, resetX,
                     uiStr(UiStringId::kWinWeekly), p.weekly, nowEpoch);
 
     const int localY = detailY + detailH + 16;

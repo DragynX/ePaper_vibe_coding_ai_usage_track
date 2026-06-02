@@ -72,8 +72,8 @@ class UsageUI {
   void drawStatusBadge(int x, int y, const String& text, bool alert);
   void drawInfoRow(int x, int y, int w, const char* label, const String& value,
                    int textSize, uint16_t bg);
-  void drawQuotaDetail(int x, int y, int w, const char* label,
-                       const WindowQuota& win, long nowEpoch);
+  void drawQuotaDetail(int x, int y, int w, int usedX, int leftX, int resetX,
+                       const char* label, const WindowQuota& win, long nowEpoch);
   void drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuota& p,
                            long nowEpoch);
 };
