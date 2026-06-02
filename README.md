@@ -126,7 +126,27 @@ Start the service on the computer that stores your CLI logs:
 python3 local_stats_service/server.py --host 0.0.0.0 --port 8787
 ```
 
-Set `UM_LOCAL_STATS_URL` in `src/secrets.h` to the computer's LAN address, for example:
+Find that computer's LAN IP address. On macOS WiFi, start with:
+
+```sh
+ipconfig getifaddr en0
+```
+
+If that prints nothing, try:
+
+```sh
+ipconfig getifaddr en1
+```
+
+You can also list non-loopback addresses:
+
+```sh
+ifconfig | grep "inet " | grep -v 127.0.0.1
+```
+
+Use a LAN address such as `192.168.x.x` or `10.x.x.x`. Do not use `127.0.0.1`; that means "this same computer" and the e-paper device cannot reach it.
+
+Set `UM_LOCAL_STATS_URL` in `src/secrets.h` to that LAN address, for example:
 
 ```cpp
 #define UM_LOCAL_STATS_URL "http://10.10.50.65:8787"

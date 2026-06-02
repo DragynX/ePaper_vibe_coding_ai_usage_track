@@ -111,7 +111,27 @@ pio device monitor
 python3 local_stats_service/server.py --host 0.0.0.0 --port 8787
 ```
 
-在 `src/secrets.h` 里把 `UM_LOCAL_STATS_URL` 设置成电脑的局域网地址，例如：
+查看这台电脑的局域网 IP。macOS 使用 WiFi 时，优先试：
+
+```sh
+ipconfig getifaddr en0
+```
+
+如果没有输出，再试：
+
+```sh
+ipconfig getifaddr en1
+```
+
+也可以列出所有非本机回环地址：
+
+```sh
+ifconfig | grep "inet " | grep -v 127.0.0.1
+```
+
+使用类似 `192.168.x.x` 或 `10.x.x.x` 的局域网地址。不要填 `127.0.0.1`，它的意思是“这台电脑自己”，墨水屏设备访问不到。
+
+在 `src/secrets.h` 里把 `UM_LOCAL_STATS_URL` 设置成这个局域网地址，例如：
 
 ```cpp
 #define UM_LOCAL_STATS_URL "http://10.10.50.65:8787"
