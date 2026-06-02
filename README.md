@@ -13,7 +13,7 @@ English · [简体中文](README.zh-CN.md)
 
 UsageMonitor turns a Seeed reTerminal E-series e-paper device into a compact quota cockpit for AI coding tools. It can show two providers side by side, refresh OAuth tokens, keep the last good snapshot when a request fails, and optionally merge local CLI-log statistics from your computer.
 
-> The README images are AI-generated concept visuals for presentation. The actual UI is implemented by the firmware and may look different on each e-paper panel.
+> The hero and concept images are AI-generated for presentation. The Feature Tour section uses a real device photo.
 
 ## Why Star This
 
@@ -26,7 +26,9 @@ UsageMonitor turns a Seeed reTerminal E-series e-paper device into a compact quo
 
 ## Feature Tour
 
-![Dashboard close-up concept](docs/images/dashboard-closeup.png)
+![Real UsageMonitor dashboard photo](docs/images/dashboard-real-photo.png)
+
+This is a real reTerminal E1003 photo with the Codex + Zai dashboard running on the device.
 
 | Feature | What you get |
 | --- | --- |

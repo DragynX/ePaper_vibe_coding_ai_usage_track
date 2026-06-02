@@ -13,7 +13,7 @@
 
 UsageMonitor 会把 Seeed reTerminal E 系列墨水屏变成一个小型额度仪表盘。它可以左右双栏显示两个 AI 编程工具的额度，自动刷新 OAuth token，请求失败时保留上一次成功数据，还能选择接入电脑端本地 CLI 日志统计。
 
-> README 里的图片是 AI 生成的概念展示图，用来帮助理解项目卖点。真实界面由固件绘制，不同墨水屏型号上的细节可能不完全一样。
+> 顶部和部分说明图是 AI 生成的概念展示图，用来帮助理解项目卖点。功能展示部分使用真实设备照片。
 
 ## 为什么值得 Star
 
@@ -28,7 +28,9 @@ UsageMonitor 会把 Seeed reTerminal E 系列墨水屏变成一个小型额度�
 
 ## 功能展示
 
-![仪表盘近景概念图](docs/images/dashboard-closeup.png)
+![UsageMonitor 真实仪表盘照片](docs/images/dashboard-real-photo.png)
+
+这是 reTerminal E1003 上运行 Codex + Zai 双栏仪表盘的实拍效果图，已经做了透视校正和轻微清晰度增强。
 
 | 功能 | 你会得到什么 |
 | --- | --- |
