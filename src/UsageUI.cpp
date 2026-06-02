@@ -245,8 +245,10 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
 
   // Left: app title.
   if (kIsLarge) {
-    renderer_.drawTextFace(uiStr(UiStringId::kAppName), margin, topY,
-                           TextFace::SansBold24, TextAlign::TopLeft, kText, kBg);
+    const int laneW = (w - margin * 2) / 3;
+    const int titleCenterX = margin + laneW / 2;
+    renderer_.drawTextFace(uiStr(UiStringId::kAppName), titleCenterX, topY,
+                           TextFace::SansBold24, TextAlign::TopCenter, kText, kBg);
   } else {
     renderer_.drawText(uiStr(UiStringId::kAppName), margin, topY, titleSize,
                        TextAlign::TopLeft, kText, kBg);
@@ -278,15 +280,24 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
   // Right: refresh note + WiFi/battery icons.
   const int wifiW = kIsLarge ? 42 : 30;
   const int wifiH = kIsLarge ? 30 : 22;
-  drawWifiIcon(w - margin - wifiW, topY, wifiW, wifiH, st.wifiConnected, kText);
   if (kIsLarge) {
-    renderer_.drawTextFace(uiStr(UiStringId::kRefreshNote), w - margin - wifiW - 16,
-                           topY + 3, TextFace::SansBold9, TextAlign::TopRight, kText, kBg);
+    const int laneW = (w - margin * 2) / 3;
+    const int rightLaneCenterX = margin + laneW * 2 + laneW / 2;
+    const int noteW = renderer_.measureTextFace(uiStr(UiStringId::kRefreshNote),
+                                                TextFace::SansBold9);
+    const int groupGap = 18;
+    const int groupW = noteW + groupGap + wifiW;
+    const int groupX = rightLaneCenterX - groupW / 2;
+    renderer_.drawTextFace(uiStr(UiStringId::kRefreshNote), groupX, topY + 3,
+                           TextFace::SansBold9, TextAlign::TopLeft, kText, kBg);
+    drawWifiIcon(groupX + noteW + groupGap, topY, wifiW, wifiH, st.wifiConnected, kText);
     if (st.batteryPercent >= 0) {
-      drawBatteryIcon(w - margin - wifiW, topY + wifiH + 14, 56, 26,
+      drawBatteryIcon(rightLaneCenterX - 28, topY + wifiH + 14, 56, 26,
                       st.batteryPercent, kText);
     }
     display_.fillRect(margin, topY + 94, w - margin * 2, 2, kLine);
+  } else {
+    drawWifiIcon(w - margin - wifiW, topY, wifiW, wifiH, st.wifiConnected, kText);
   }
 }
 
