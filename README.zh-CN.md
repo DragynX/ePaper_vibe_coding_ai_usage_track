@@ -15,6 +15,10 @@ UsageMonitor 会把 Seeed reTerminal E 系列墨水屏变成一个小型额度�
 
 > 顶部和部分说明图是 AI 生成的概念展示图，用来帮助理解项目卖点。功能展示部分使用真实设备照片。
 
+## 特别感谢
+
+特别感谢 [ClaudeBar](https://github.com/tddworks/ClaudeBar)。本项目里大部分 provider 用量 API 的发现方式和适配器设计都大量参考了 ClaudeBar。UsageMonitor 是一个独立的墨水屏与 PlatformIO 实现，但 ClaudeBar 在 API 探索上的工作是这个项目的重要参考。
+
 ## 为什么值得 Star
 
 - **额度一直看得见**：把 5 小时窗口和 7 天窗口放到低功耗墨水屏上，不用反复打开网页查。

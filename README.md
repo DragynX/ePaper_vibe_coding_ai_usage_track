@@ -15,6 +15,10 @@ UsageMonitor turns a Seeed reTerminal E-series e-paper device into a compact quo
 
 > The hero and concept images are AI-generated for presentation. The Feature Tour section uses a real device photo.
 
+## Acknowledgements
+
+Special thanks to [ClaudeBar](https://github.com/tddworks/ClaudeBar). Most of the provider usage API discovery and adapter design in this project was heavily informed by ClaudeBar. UsageMonitor is an independent e-paper and PlatformIO implementation, but the API exploration work in ClaudeBar was an important reference.
+
 ## Why Star This
 
 - **Always-on quota awareness** - keep rolling 5-hour and 7-day limits visible on a low-power desk display.
