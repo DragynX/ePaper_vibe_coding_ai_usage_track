@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 
+#include "ProjectConfig.h"
+
 #include "AppLog.h"
 
 namespace usage_monitor {
@@ -43,6 +45,7 @@ summary{padding:8px 10px;cursor:pointer;font-weight:600;font-size:13px;user-sele
 .note{font-size:11px;color:#888;margin-top:4px}
 .chkrow{display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer}
 .chkrow input{width:auto}
+.secret{font-family:monospace;font-size:11px}
 </style>
 </head>
 <body>
@@ -56,36 +59,40 @@ summary{padding:8px 10px;cursor:pointer;font-weight:600;font-size:13px;user-sele
 
 <div id="p0" class="pane on">
   <details><summary>Claude OAuth</summary><div class="inner">
-    <label>Access Token<textarea id="cl_at" spellcheck="false"></textarea></label>
-    <label>Refresh Token<textarea id="cl_rt" spellcheck="false"></textarea></label>
+    <label>Access Token<input type="password" class="secret" id="cl_at" spellcheck="false"></label>
+    <label>Refresh Token<input type="password" class="secret" id="cl_rt" spellcheck="false"></label>
     <label>Expires At (ms epoch)<input type="text" id="cl_exp" placeholder="e.g. 1234567890000"></label>
-    <label>Subscription<input type="text" id="cl_sub" placeholder="pro / max / free"></label>
+    <label>Subscription<select id="cl_sub">
+      <option value="free">Free</option>
+      <option value="pro">Pro</option>
+      <option value="max">Max</option>
+    </select></label>
   </div></details>
   <details><summary>Claude Platform (Admin Key)</summary><div class="inner">
-    <label>Admin API Key<input type="text" id="cp_key" spellcheck="false"></label>
+    <label>Admin API Key<input type="password" class="secret" id="cp_key" spellcheck="false"></label>
     <label>Org ID (optional)<input type="text" id="cp_org" spellcheck="false"></label>
     <p class="note">From console.anthropic.com &#8594; API Keys &#8594; Admin Key. Shows 7-day token totals.</p>
   </div></details>
   <details><summary>Codex OAuth</summary><div class="inner">
-    <label>Access Token<textarea id="cx_at" spellcheck="false"></textarea></label>
-    <label>Refresh Token<textarea id="cx_rt" spellcheck="false"></textarea></label>
+    <label>Access Token<input type="password" class="secret" id="cx_at" spellcheck="false"></label>
+    <label>Refresh Token<input type="password" class="secret" id="cx_rt" spellcheck="false"></label>
     <label>Account ID<input type="text" id="cx_aid"></label>
     <label>Last Refresh (ISO8601 or 0)<input type="text" id="cx_lr" placeholder="0"></label>
   </div></details>
   <details><summary>GitHub Copilot PAT</summary><div class="inner">
-    <label>Personal Access Token<input type="text" id="co_pat" spellcheck="false"></label>
+    <label>Personal Access Token<input type="password" class="secret" id="co_pat" spellcheck="false"></label>
     <p class="note">github.com/settings/tokens &#8594; Classic &#8594; needs "copilot" scope</p>
   </div></details>
   <details><summary>MiniMax</summary><div class="inner">
-    <label>API Key<input type="text" id="mm_key" spellcheck="false"></label>
+    <label>API Key<input type="password" class="secret" id="mm_key" spellcheck="false"></label>
     <label>Region<select id="mm_reg"><option value="0">International (api.minimax.io)</option><option value="1">China (api.minimaxi.com)</option></select></label>
   </div></details>
   <details><summary>Kimi</summary><div class="inner">
-    <label>Auth Token (browser cookie kimi-auth)<input type="text" id="ki_tok" spellcheck="false"></label>
+    <label>Auth Token (browser cookie kimi-auth)<input type="password" class="secret" id="ki_tok" spellcheck="false"></label>
     <p class="note">Extract from www.kimi.com DevTools. No refresh &#8212; re-enter when expired.</p>
   </div></details>
   <details><summary>Zai / Zhipu</summary><div class="inner">
-    <label>API Key<input type="text" id="za_key" spellcheck="false"></label>
+    <label>API Key<input type="password" class="secret" id="za_key" spellcheck="false"></label>
     <label>Endpoint<input type="text" id="za_ep" placeholder="https://api.z.ai"></label>
   </div></details>
   <details><summary>Local Stats Server</summary><div class="inner">
@@ -196,6 +203,11 @@ function populate(c){
     const el=document.getElementById(id);
     if(el)el.value=c[id]??'';
   });
+  const sub=document.getElementById('cl_sub');
+  if(sub){
+    const v=String(c.cl_sub??'pro').toLowerCase();
+    sub.value=['free','pro','max'].includes(v)?v:'pro';
+  }
   const mm=document.getElementById('mm_reg');if(mm)mm.value=String(c.mm_reg??0);
   const rs=document.getElementById('ref_sec');if(rs){rs.value=c.ref_sec??300;updRef(rs.value);}
   const ds=document.getElementById('deep_sleep');if(ds)ds.checked=!!c.deep_sleep;
@@ -234,6 +246,17 @@ async function doRestart(){
   if(!confirm('Restart device?'))return;
   setMsg('Restarting…','#888');
   await fetch('/api/restart',{method:'POST'}).catch(()=>{});
+  // Poll until the device is back, then reload the page.
+  const deadline=Date.now()+90000;
+  await new Promise(r=>setTimeout(r,4000));
+  while(Date.now()<deadline){
+    try{
+      const r=await fetch('/api/status',{cache:'no-store'});
+      if(r.ok){setMsg('Restarted','green');location.reload();return;}
+    }catch(e){}
+    await new Promise(r=>setTimeout(r,2000));
+  }
+  setMsg('Still offline — refresh manually','red');
 }
 async function doWifiReset(){
   if(!confirm('Clear WiFi credentials and restart?'))return;
@@ -249,6 +272,7 @@ async function loadSt(){
     const rows=[
       ['IP Address',d.ip??'?'],
       ['WiFi SSID',d.ssid??'?'],
+      ['Battery',(d.batt!=null&&d.batt>=0)?d.batt+'%':'?'],
       ['Uptime',h+'h '+m+'m '+s+'s'],
       ['LEFT',PNAMES[d.left_prov??0]??'?'],
       ['RIGHT',PNAMES[d.right_prov??0]??'?'],
@@ -259,16 +283,24 @@ async function loadSt(){
     document.getElementById('st_box').innerHTML='<div class="srow"><span>Unavailable</span></div>';
   }
 }
+document.querySelectorAll('.secret').forEach(el=>{
+  el.addEventListener('focus',()=>el.type='text');
+  el.addEventListener('blur', ()=>el.type='password');
+});
 fetch('/api/settings').then(r=>r.json()).then(populate).catch(console.error);
 </script>
-</body>
+)rawhtml"
+"<div style='position:fixed;bottom:8px;right:12px;font-size:11px;color:#999;"
+"font-weight:bold'>v" UM_VERSION "</div>\n"
+R"rawhtml(</body>
 </html>
 )rawhtml";
 
 // ---------------------------------------------------------------------------
 
-void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg) {
+void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battPct)()) {
   cfg_ = cfg;
+  battPct_ = battPct;
 
   // GET / → settings page
   server->on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
@@ -311,8 +343,10 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg) {
     String ip   = WiFi.localIP().toString();
     String ssid = WiFi.SSID();
     unsigned long up = millis() / 1000UL;
+    const int batt = battPct_ ? battPct_() : -1;
     String json = "{\"ip\":\"" + ip + "\","
                   "\"ssid\":\"" + ssid + "\","
+                  "\"batt\":" + String(batt) + ","
                   "\"uptime_sec\":" + String(up) + ","
                   "\"left_prov\":"  + String(cfg_->leftProvider()) + ","
                   "\"right_prov\":" + String(cfg_->rightProvider()) + "}";

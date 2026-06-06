@@ -10,6 +10,7 @@
 #include <time.h>
 
 #include "AppLog.h"
+#include "BatteryMath.h"
 #include "DragynESPAsyncWiFiManager.h"
 #include "IsoTime.h"
 #include "UiLang.h"
@@ -47,6 +48,18 @@ class TeeStream : public Stream {
   void flush() override { Serial.flush(); Serial1.flush(); }
 };
 static TeeStream logTee;
+
+// Battery: GPIO1 ADC behind a divider (halves the voltage), gated by GPIO21
+// (must be HIGH to read — Seeed reTerminal E series wiki).
+static int readBatteryPercent() {
+  pinMode(21, OUTPUT);
+  digitalWrite(21, HIGH);
+  delay(10);
+  uint32_t mv = 0;
+  for (int i = 0; i < 16; ++i) mv += analogReadMilliVolts(1);
+  digitalWrite(21, LOW);
+  return umBatteryPercent(static_cast<int>(mv / 16));
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -285,7 +298,7 @@ void UsageApp::begin() {
 
   if (settingsAvailable_) {
     MDNS.begin("usagemonitor");
-    settings_.begin(&server_, &cfgStore_);
+    settings_.begin(&server_, &cfgStore_, &readBatteryPercent);
     server_.begin();
     sysLog("[settings] http://usagemonitor.local or http://%s",
            WiFi.localIP().toString().c_str());
@@ -397,7 +410,7 @@ long UsageApp::now() { return static_cast<long>(time(nullptr)); }
 UiStatus UsageApp::currentStatus() {
   UiStatus s;
   s.wifiConnected  = (WiFi.status() == WL_CONNECTED);
-  s.batteryPercent = -1;
+  s.batteryPercent = readBatteryPercent();
   if (s.wifiConnected) s.ipAddress = WiFi.localIP().toString();
   return s;
 }
