@@ -22,6 +22,32 @@ namespace usage_monitor {
 
 static const long kSanityFloorEpoch = 1577836800L;
 
+// Mirror log output to both USB CDC (Serial, visible on the COM port) and the
+// external UART (Serial1, pins 43/44). EspAppLog accepts one Stream*.
+class TeeStream : public Stream {
+ public:
+  size_t write(uint8_t c) override {
+    Serial.write(c);
+    return Serial1.write(c);
+  }
+  size_t write(const uint8_t* buf, size_t n) override {
+    Serial.write(buf, n);
+    return Serial1.write(buf, n);
+  }
+  // availableForWrite drives EspAppLog's skip-line check; report the smaller
+  // sink so a full buffer on either side skips cleanly instead of blocking.
+  int availableForWrite() override {
+    const int a = Serial.availableForWrite();
+    const int b = Serial1.availableForWrite();
+    return a < b ? a : b;
+  }
+  int available() override { return 0; }
+  int read() override { return -1; }
+  int peek() override { return -1; }
+  void flush() override { Serial.flush(); Serial1.flush(); }
+};
+static TeeStream logTee;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -95,6 +121,7 @@ void UsageApp::configureProviders() {
   auto loadCache = [this](const char* pk, AuthState& auth, const String& seed) {
     if (store_.seedMatches(pk, seed)) {
       store_.load(pk, auth);
+      sysLog("[tok] %s: cache resumed", pk);
     } else {
       store_.clearProvider(pk);
       sysLog("[tok] %s: new credentials from settings, cache cleared", pk);
@@ -107,7 +134,12 @@ void UsageApp::configureProviders() {
       case UM_PROV_CLAUDE:
         claudeAuth_.accessToken       = cfgStore_.claudeAt();
         claudeAuth_.refreshToken      = cfgStore_.claudeRt();
-        claudeAuth_.expiryEpoch       = atoll(cfgStore_.claudeExp().c_str()) / 1000L;
+        {
+          // User may paste ms or seconds; values past ~year 5138 must be ms.
+          const long long e = atoll(cfgStore_.claudeExp().c_str());
+          claudeAuth_.expiryEpoch = (e > 100000000000LL)
+              ? static_cast<long>(e / 1000) : static_cast<long>(e);
+        }
         claudeAuth_.usesAbsoluteExpiry = true;
         loadCache("claude", claudeAuth_, cfgStore_.claudeRt());
         oauth.configure(&http_, &claudeProvider_, &claudeAuth_);
@@ -199,6 +231,7 @@ void UsageApp::configureProviders() {
 // ---------------------------------------------------------------------------
 
 void UsageApp::begin() {
+  Serial1.setTxBufferSize(4096);   // default ~256 drops burst log lines
   Serial1.begin(115200, SERIAL_8N1, 44, 43);
   {
     espapplog::BeginConfig logCfg;
@@ -208,7 +241,7 @@ void UsageApp::begin() {
     logCfg.bootUsbWaitMs  = 0;
     logCfg.startupDelayMs = 0;
     espapplog::begin(logCfg);
-    espapplog::setStream(&Serial1);
+    espapplog::setStream(&logTee);   // USB CDC + UART pins 43/44
   }
   sysLog("\n[boot] UsageMonitor v" UM_VERSION);
   pinMode(UM_LED_PIN, OUTPUT);
@@ -347,7 +380,7 @@ bool UsageApp::ensureWiFi(uint32_t timeoutMs) {
 void UsageApp::syncTime() {
   sysLog("[ntp] tz=%s servers=pool.ntp.org,time.nist.gov", cfgStore_.tz().c_str());
   configTzTime(cfgStore_.tz().c_str(), "pool.ntp.org", "time.nist.gov");
-  for (int i = 0; i < 20 && static_cast<long>(time(nullptr)) < kSanityFloorEpoch; ++i) {
+  for (int i = 0; i < 60 && static_cast<long>(time(nullptr)) < kSanityFloorEpoch; ++i) {
     delay(500);
   }
   if (static_cast<long>(time(nullptr)) >= kSanityFloorEpoch) {
@@ -355,6 +388,7 @@ void UsageApp::syncTime() {
     sysLog("[time] NTP ok: %ld", static_cast<long>(time(nullptr)));
   } else {
     sysLog("[time] NTP failed");
+    sysLog("[time] WARN proceeding without synced clock — expiry math degraded");
   }
 }
 
@@ -392,6 +426,12 @@ void UsageApp::fetchLeft(long n) {
     return;
   }
   if (leftClient_->fetch(n, snapshot_.left)) {
+    sysLog("[api] %s OK session=%d%% weekly=%d%% (present s=%d w=%d)",
+           providerName(cfgStore_.leftProvider()),
+           (int)(snapshot_.left.session.usedPercent + 0.5),
+           (int)(snapshot_.left.weekly.usedPercent + 0.5),
+           snapshot_.left.session.present ? 1 : 0,
+           snapshot_.left.weekly.present ? 1 : 0);
     if (cfgStore_.leftProvider() == UM_PROV_CLAUDE) {
       snapshot_.left.hasPlan = true;
       strncpy(snapshot_.left.planType, cfgStore_.claudeSub().c_str(),
@@ -402,8 +442,10 @@ void UsageApp::fetchLeft(long n) {
                   seedFor(cfgStore_.leftProvider(), cfgStore_));
       sysLog("[fetch] left ok, token saved");
     }
-  } else if (snapshot_.left.needsRelogin) {
-    sysLog("[fetch] left %s needsRelogin", providerName(cfgStore_.leftProvider()));
+  } else {
+    sysLog("[api] %s FAILED (relogin=%d)",
+           providerName(cfgStore_.leftProvider()),
+           snapshot_.left.needsRelogin ? 1 : 0);
   }
   setProviderNames();
 }
@@ -417,6 +459,12 @@ void UsageApp::fetchRight(long n) {
     return;
   }
   if (rightClient_->fetch(n, snapshot_.right)) {
+    sysLog("[api] %s OK session=%d%% weekly=%d%% (present s=%d w=%d)",
+           providerName(cfgStore_.rightProvider()),
+           (int)(snapshot_.right.session.usedPercent + 0.5),
+           (int)(snapshot_.right.weekly.usedPercent + 0.5),
+           snapshot_.right.session.present ? 1 : 0,
+           snapshot_.right.weekly.present ? 1 : 0);
     if (cfgStore_.rightProvider() == UM_PROV_CLAUDE) {
       snapshot_.right.hasPlan = true;
       strncpy(snapshot_.right.planType, cfgStore_.claudeSub().c_str(),
@@ -427,8 +475,10 @@ void UsageApp::fetchRight(long n) {
                   seedFor(cfgStore_.rightProvider(), cfgStore_));
       sysLog("[fetch] right ok, token saved");
     }
-  } else if (snapshot_.right.needsRelogin) {
-    sysLog("[fetch] right %s needsRelogin", providerName(cfgStore_.rightProvider()));
+  } else {
+    sysLog("[api] %s FAILED (relogin=%d)",
+           providerName(cfgStore_.rightProvider()),
+           snapshot_.right.needsRelogin ? 1 : 0);
   }
   setProviderNames();
 }
@@ -443,14 +493,15 @@ void UsageApp::fetchLocalStats() {
 }
 
 void UsageApp::refreshAll() {
-  sysLog("[refresh] start");
   const long n = now();
+  sysLog("[api] cycle start now=%ld time_synced=%d", n, timeSynced_ ? 1 : 0);
   fetchLeft(n);
   fetchRight(n);
   fetchLocalStats();
   setProviderNames();
   printSnapshot();
   ui_.drawDashboard(snapshot_, currentStatus(), now());
+  sysLog("[ui] dashboard drawn");
 }
 
 void UsageApp::printSnapshot() {

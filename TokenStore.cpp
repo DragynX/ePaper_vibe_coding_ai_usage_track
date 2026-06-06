@@ -82,6 +82,7 @@ void TokenStore::clearProvider(const char* pk) {
     prefs.remove(k);
   }
   prefs.end();
+  sysLog("[tok] clear %s", pk);
 }
 
 }  // namespace usage_monitor

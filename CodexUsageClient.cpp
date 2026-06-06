@@ -147,6 +147,9 @@ bool CodexUsageClient::fetch(long now, ProviderQuota& out) {
     }
   }
 
+  sysLog("[codex/usage] ok session=%d%% weekly=%d%% bal=%d plan=%d",
+         (int)(out.session.usedPercent + 0.5), (int)(out.weekly.usedPercent + 0.5),
+         out.hasBalance ? 1 : 0, out.hasPlan ? 1 : 0);
   out.ok = true;
   out.lastSuccessEpoch = now;
   return true;

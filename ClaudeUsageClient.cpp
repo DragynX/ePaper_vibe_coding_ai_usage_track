@@ -36,7 +36,9 @@ bool ClaudeAuthProvider::refresh(HttpClient& http, AuthState& st, long now,
   const char* rt = doc["refresh_token"];
   if (rt) st.refreshToken = rt;            // Anthropic may rotate the refresh token
   const long expiresIn = doc["expires_in"] | 0;
-  st.expiryEpoch = now + expiresIn;
+  // Only derive an absolute expiry from a sane clock; epoch 0 keeps the
+  // reactive-401 path working instead of poisoning the chain with 1970 dates.
+  st.expiryEpoch = (now > 1577836800L) ? now + expiresIn : 0;
   st.usesAbsoluteExpiry = true;
   sysLog("[claude/refresh] ok");
   return true;
@@ -53,8 +55,11 @@ bool ClaudeUsageClient::fetch(long now, ProviderQuota& out) {
     { "Content-Type", "application/json" },
     { "anthropic-beta", "oauth-2025-04-20" },
   };
+  // UA matching the Claude Code CLI — the usage endpoint rate-limits
+  // unrecognized user agents (429 with "UsageMonitor").
   AuthedResult ar = oauth_->get("https://api.anthropic.com/api/oauth/usage",
-                                extra, 3, nullptr, 0, now, "UsageMonitor");
+                                extra, 3, nullptr, 0, now,
+                                "claude-cli/2.0.14 (external, cli)");
   if (ar.needsRelogin) { out.needsRelogin = true; return false; }
   if (ar.http.status != 200) {
     sysLog("[claude/usage] status %d", ar.http.status);
@@ -88,6 +93,10 @@ bool ClaudeUsageClient::fetch(long now, ProviderQuota& out) {
     out.extraLimitCents = ex["monthly_limit"] | 0.0;
   }
 
+  sysLog("[claude/usage] ok 5h=%.0f%% 7d=%.0f%% opus=%d sonnet=%d extra=%d",
+         out.session.usedPercent, out.weekly.usedPercent,
+         out.weeklyOpus.present ? 1 : 0, out.weeklySonnet.present ? 1 : 0,
+         out.extraEnabled ? 1 : 0);
   out.ok = true;
   out.lastSuccessEpoch = now;
   return true;

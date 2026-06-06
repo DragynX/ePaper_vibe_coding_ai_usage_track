@@ -63,7 +63,10 @@ HttpResult HttpClient::send(bool isPost, const String& url, const HttpHeader* re
   sysLog("[http] %s %.60s -> %d (%u bytes)",
          isPost ? "POST" : "GET", url.c_str(), code,
          static_cast<unsigned>(r.body.length()));
-  if (code != 200 && r.body.length() > 0)
+  if (code <= 0)
+    sysLog("[http] NO RESPONSE %.60s err=%d (%s)", url.c_str(), code,
+           HTTPClient::errorToString(code).c_str());
+  else if (code != 200 && r.body.length() > 0)
     sysLog("[http] err: %.100s", r.body.c_str());
   return r;
 }
