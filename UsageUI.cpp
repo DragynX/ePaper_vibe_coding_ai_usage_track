@@ -61,7 +61,7 @@ uint16_t statusColor(QuotaStatus s) {
 
 // True when this panel is the large 800px panel (E1001 GRAY4 or E1003 GRAY16).
 // E1002 COLOR6 uses the compact stacked layout.
-constexpr bool kIsLarge = (UM_SCREEN_MODE != UM_SCREEN_COLOR6);
+constexpr bool kIsLarge = (UM_SCREEN_MODE == UM_SCREEN_GRAY16);
 
 String fmtPercent(double pct) {
   char buf[12];
