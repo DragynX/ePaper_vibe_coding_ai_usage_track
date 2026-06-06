@@ -67,9 +67,9 @@ enum class UiStringId {
 // English column.
 inline const char* uiStrEn(UiStringId id) {
   switch (id) {
-    case UiStringId::kAppName:      return "Usage Monitor";
-    case UiStringId::kWinSession:   return "Session 5h";
-    case UiStringId::kWinWeekly:    return "Weekly 7d";
+    case UiStringId::kAppName:      return "AI Usage Monitor";
+    case UiStringId::kWinSession:   return "Session";
+    case UiStringId::kWinWeekly:    return "Weekly";
     case UiStringId::kWinSonnet:    return "Sonnet 7d";
     case UiStringId::kWinOpus:      return "Opus 7d";
     case UiStringId::kRemaining:    return "left";

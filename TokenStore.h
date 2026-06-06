@@ -18,8 +18,17 @@ class TokenStore {
   // usesAbsoluteExpiry untouched). Returns true if an access token was stored.
   bool load(const char* providerKey, AuthState& out);
 
-  // Persist the token fields under the provider key prefix.
-  bool save(const char* providerKey, const AuthState& st);
+  // Persist the token fields under the provider key prefix. `seed` is the
+  // user-entered credential (from ConfigStore) the token chain derives from;
+  // the cached chain is only valid while the seed is unchanged.
+  bool save(const char* providerKey, const AuthState& st, const String& seed);
+
+  // True when the stored seed equals `seed` — i.e. the cached token chain
+  // still derives from the credentials currently in ConfigStore.
+  bool seedMatches(const char* providerKey, const String& seed);
+
+  // Remove all cached fields (at/rt/aid/exp/seed) for the provider.
+  void clearProvider(const char* providerKey);
 };
 
 }  // namespace usage_monitor

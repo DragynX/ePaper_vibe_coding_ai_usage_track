@@ -279,12 +279,13 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
   const int headerMiddleY = kIsLarge ? topY + 44 : topY;
   const int titleSize = kIsLarge ? 4 : 3;
 
-  // Left: app title.
+  // Left: app title + version.
+  const String title = String(uiStr(UiStringId::kAppName)) + " " + UM_VERSION;
   if (kIsLarge) {
-    renderer_.drawTextFace(uiStr(UiStringId::kAppName), margin, headerMiddleY,
+    renderer_.drawTextFace(title, margin, headerMiddleY,
                            TextFace::SansBold24, TextAlign::MiddleLeft, kText, kBg);
   } else {
-    renderer_.drawTextFace(uiStr(UiStringId::kAppName), margin, topY,
+    renderer_.drawTextFace(title, margin, topY,
                            TextFace::SansBold9, TextAlign::TopLeft, kText, kBg);
   }
 

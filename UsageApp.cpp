@@ -52,6 +52,20 @@ static const char* providerKey(uint8_t prov) {
   }
 }
 
+// The user-entered credential the provider's token chain derives from; used
+// as the TokenStore cache seed (see TokenStore::seedMatches).
+static String seedFor(uint8_t prov, const ConfigStore& cfg) {
+  switch (prov) {
+    case UM_PROV_CLAUDE:  return cfg.claudeRt();
+    case UM_PROV_CODEX:   return cfg.codexRt();
+    case UM_PROV_COPILOT: return cfg.copilotPat();
+    case UM_PROV_MINIMAX: return cfg.minimaxKey();
+    case UM_PROV_KIMI:    return cfg.kimiToken();
+    case UM_PROV_ZAI:     return cfg.zaiKey();
+    default:              return String();
+  }
+}
+
 static bool isConfigured(uint8_t prov, const ConfigStore& cfg) {
   switch (prov) {
     case UM_PROV_CLAUDE:     return cfg.claudeAt().length() > 0;
@@ -76,15 +90,26 @@ UsageApp::UsageApp() : server_(80) {}
 // ---------------------------------------------------------------------------
 
 void UsageApp::configureProviders() {
-  auto doSide = [this](uint8_t prov, OAuthClient& oauth,
-                       UsageClientBase*& client, AuthState*& authPtr) {
+  // Resume the cached (rotated) token chain only while it derives from the
+  // credentials currently in settings; new credentials invalidate the cache.
+  auto loadCache = [this](const char* pk, AuthState& auth, const String& seed) {
+    if (store_.seedMatches(pk, seed)) {
+      store_.load(pk, auth);
+    } else {
+      store_.clearProvider(pk);
+      sysLog("[tok] %s: new credentials from settings, cache cleared", pk);
+    }
+  };
+
+  auto doSide = [this, &loadCache](uint8_t prov, OAuthClient& oauth,
+                                   UsageClientBase*& client, AuthState*& authPtr) {
     switch (prov) {
       case UM_PROV_CLAUDE:
         claudeAuth_.accessToken       = cfgStore_.claudeAt();
         claudeAuth_.refreshToken      = cfgStore_.claudeRt();
         claudeAuth_.expiryEpoch       = atoll(cfgStore_.claudeExp().c_str()) / 1000L;
         claudeAuth_.usesAbsoluteExpiry = true;
-        store_.load("claude", claudeAuth_);
+        loadCache("claude", claudeAuth_, cfgStore_.claudeRt());
         oauth.configure(&http_, &claudeProvider_, &claudeAuth_);
         claudeClient_.configure(&oauth);
         authPtr = &claudeAuth_;
@@ -97,7 +122,7 @@ void UsageApp::configureProviders() {
         codexAuth_.accountId          = cfgStore_.codexAid();
         codexAuth_.expiryEpoch        = umParseIso8601(cfgStore_.codexLr().c_str());
         codexAuth_.usesAbsoluteExpiry = false;
-        store_.load("codex", codexAuth_);
+        loadCache("codex", codexAuth_, cfgStore_.codexRt());
         oauth.configure(&http_, &codexProvider_, &codexAuth_);
         codexClient_.configure(&oauth);
         authPtr = &codexAuth_;
@@ -106,7 +131,7 @@ void UsageApp::configureProviders() {
 
       case UM_PROV_COPILOT:
         copilotAuth_.accessToken = cfgStore_.copilotPat();
-        store_.load("copilot", copilotAuth_);
+        loadCache("copilot", copilotAuth_, cfgStore_.copilotPat());
         oauth.configure(&http_, &copilotProvider_, &copilotAuth_);
         copilotClient_.configure(&oauth);
         authPtr = &copilotAuth_;
@@ -115,7 +140,7 @@ void UsageApp::configureProviders() {
 
       case UM_PROV_MINIMAX:
         minimaxAuth_.accessToken = cfgStore_.minimaxKey();
-        store_.load("minimax", minimaxAuth_);
+        loadCache("minimax", minimaxAuth_, cfgStore_.minimaxKey());
         oauth.configure(&http_, &minimaxProvider_, &minimaxAuth_);
         minimaxBaseUrl_ = (cfgStore_.minimaxRegion() == 1)
             ? "https://api.minimaxi.com" : "https://api.minimax.io";
@@ -126,7 +151,7 @@ void UsageApp::configureProviders() {
 
       case UM_PROV_KIMI:
         kimiAuth_.accessToken = cfgStore_.kimiToken();
-        store_.load("kimi", kimiAuth_);
+        loadCache("kimi", kimiAuth_, cfgStore_.kimiToken());
         oauth.configure(&http_, &kimiProvider_, &kimiAuth_);
         kimiClient_.configure(&oauth);
         authPtr = &kimiAuth_;
@@ -135,7 +160,7 @@ void UsageApp::configureProviders() {
 
       case UM_PROV_ZAI:
         zaiAuth_.accessToken = cfgStore_.zaiKey();
-        store_.load("zai", zaiAuth_);
+        loadCache("zai", zaiAuth_, cfgStore_.zaiKey());
         oauth.configure(&http_, &zaiProvider_, &zaiAuth_);
         zaiEndpointStr_ = cfgStore_.zaiEndpoint();
         zaiClient_.configure(&oauth, zaiEndpointStr_.c_str());
@@ -373,7 +398,8 @@ void UsageApp::fetchLeft(long n) {
               sizeof(snapshot_.left.planType) - 1);
     }
     if (leftAuthPtr_) {
-      store_.save(providerKey(cfgStore_.leftProvider()), *leftAuthPtr_);
+      store_.save(providerKey(cfgStore_.leftProvider()), *leftAuthPtr_,
+                  seedFor(cfgStore_.leftProvider(), cfgStore_));
       sysLog("[fetch] left ok, token saved");
     }
   } else if (snapshot_.left.needsRelogin) {
@@ -397,7 +423,8 @@ void UsageApp::fetchRight(long n) {
               sizeof(snapshot_.right.planType) - 1);
     }
     if (rightAuthPtr_) {
-      store_.save(providerKey(cfgStore_.rightProvider()), *rightAuthPtr_);
+      store_.save(providerKey(cfgStore_.rightProvider()), *rightAuthPtr_,
+                  seedFor(cfgStore_.rightProvider(), cfgStore_));
       sysLog("[fetch] right ok, token saved");
     }
   } else if (snapshot_.right.needsRelogin) {

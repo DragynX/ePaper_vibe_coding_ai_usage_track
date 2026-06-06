@@ -48,17 +48,40 @@ bool TokenStore::load(const char* pk, AuthState& out) {
   return at.length() > 0;
 }
 
-bool TokenStore::save(const char* pk, const AuthState& st) {
+bool TokenStore::save(const char* pk, const AuthState& st, const String& seed) {
   Preferences prefs;
   if (!prefs.begin(kNs, /*readOnly=*/false)) return false;
   char k[16];
-  key(k, sizeof(k), pk, "at");  prefs.putString(k, st.accessToken);
-  key(k, sizeof(k), pk, "rt");  prefs.putString(k, st.refreshToken);
-  key(k, sizeof(k), pk, "aid"); prefs.putString(k, st.accountId);
-  key(k, sizeof(k), pk, "exp"); prefs.putUInt(k, static_cast<uint32_t>(st.expiryEpoch));
+  key(k, sizeof(k), pk, "at");   prefs.putString(k, st.accessToken);
+  key(k, sizeof(k), pk, "rt");   prefs.putString(k, st.refreshToken);
+  key(k, sizeof(k), pk, "aid");  prefs.putString(k, st.accountId);
+  key(k, sizeof(k), pk, "exp");  prefs.putUInt(k, static_cast<uint32_t>(st.expiryEpoch));
+  key(k, sizeof(k), pk, "seed"); prefs.putString(k, seed);
   prefs.end();
   sysLog("[tok] save %s (at_len=%d)", pk, (int)st.accessToken.length());
   return true;
+}
+
+bool TokenStore::seedMatches(const char* pk, const String& seed) {
+  Preferences prefs;
+  if (!prefs.begin(kNs, /*readOnly=*/true)) return false;
+  char k[16];
+  key(k, sizeof(k), pk, "seed");
+  const String stored = prefs.getString(k, "");
+  prefs.end();
+  return stored.length() > 0 && stored == seed;
+}
+
+void TokenStore::clearProvider(const char* pk) {
+  Preferences prefs;
+  if (!prefs.begin(kNs, /*readOnly=*/false)) return;
+  static const char* kFields[] = {"at", "rt", "aid", "exp", "seed"};
+  char k[16];
+  for (const char* f : kFields) {
+    key(k, sizeof(k), pk, f);
+    prefs.remove(k);
+  }
+  prefs.end();
 }
 
 }  // namespace usage_monitor

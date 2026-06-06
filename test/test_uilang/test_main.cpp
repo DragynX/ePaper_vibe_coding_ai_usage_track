@@ -7,8 +7,8 @@
 // build can assert both languages regardless of UM_LANG_ZH.
 
 void test_en_column_spot_values() {
-  TEST_ASSERT_EQUAL_STRING("Usage Monitor", uiStrEn(UiStringId::kAppName));
-  TEST_ASSERT_EQUAL_STRING("Session 5h",    uiStrEn(UiStringId::kWinSession));
+  TEST_ASSERT_EQUAL_STRING("AI Usage Monitor", uiStrEn(UiStringId::kAppName));
+  TEST_ASSERT_EQUAL_STRING("Session",          uiStrEn(UiStringId::kWinSession));
   TEST_ASSERT_EQUAL_STRING("resets",        uiStrEn(UiStringId::kResets));
   TEST_ASSERT_EQUAL_STRING("CLOUD SUMMARY", uiStrEn(UiStringId::kCloudSummary));
   TEST_ASSERT_EQUAL_STRING("SESSION LEFT",  uiStrEn(UiStringId::kSessionLeft));
