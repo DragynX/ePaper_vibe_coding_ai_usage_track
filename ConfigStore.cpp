@@ -38,6 +38,8 @@ void ConfigStore::load() {
   za_ep_  = p.getString("za_ep",  "https://api.z.ai");
   cp_key_ = p.getString("cp_key", "");
   cp_org_ = p.getString("cp_org", "");
+  cp_prepaid_ = p.getString("cp_prepaid", "");
+  cp_topup_   = p.getString("cp_topup", "");
   ls_url_ = p.getString("ls_url", "");
   p.end();
   sysLog("[cfg] loaded left=%d right=%d ref=%us", (int)leftProv_, (int)rightProv_, (unsigned)refreshSec_);
@@ -69,6 +71,8 @@ void ConfigStore::save() {
   p.putString("za_ep",     za_ep_);
   p.putString("cp_key",    cp_key_);
   p.putString("cp_org",    cp_org_);
+  p.putString("cp_prepaid", cp_prepaid_);
+  p.putString("cp_topup",   cp_topup_);
   p.putString("ls_url",    ls_url_);
   p.end();
   sysLog("[cfg] saved");
@@ -106,6 +110,8 @@ String ConfigStore::toJson() const {
   doc["za_ep"]      = za_ep_;
   secret("cp_key", cp_key_);
   doc["cp_org"]     = cp_org_;
+  doc["cp_prepaid"] = cp_prepaid_;
+  doc["cp_topup"]   = cp_topup_;
   doc["ls_url"]     = ls_url_;
   String out;
   serializeJson(doc, out);
@@ -149,6 +155,8 @@ bool ConfigStore::fromJson(const String& json) {
   if (!doc["za_ep"].isNull())  za_ep_  = doc["za_ep"].as<String>();
   setSecret("cp_key", cp_key_, UM_PROV_CLAUDEPLAT);
   if (!doc["cp_org"].isNull()) cp_org_ = doc["cp_org"].as<String>();
+  if (!doc["cp_prepaid"].isNull()) cp_prepaid_ = doc["cp_prepaid"].as<String>();
+  if (!doc["cp_topup"].isNull())   cp_topup_   = doc["cp_topup"].as<String>();
   if (!doc["ls_url"].isNull()) ls_url_ = doc["ls_url"].as<String>();
   return true;
 }
@@ -161,7 +169,7 @@ void ConfigStore::clearProvider(uint8_t prov) {
     case UM_PROV_MINIMAX:    mm_key_ = ""; break;
     case UM_PROV_KIMI:       ki_tok_ = ""; break;
     case UM_PROV_ZAI:        za_key_ = ""; break;
-    case UM_PROV_CLAUDEPLAT: cp_key_ = ""; cp_org_ = ""; break;
+    case UM_PROV_CLAUDEPLAT: cp_key_ = ""; cp_org_ = ""; cp_prepaid_ = ""; cp_topup_ = ""; break;
     default: break;
   }
 }

@@ -136,6 +136,36 @@ bool ClaudePlatformUsageClient::fetch(long nowEpoch, ProviderQuota& out) {
     sysLog("[claudeplat/cost] status %d (tokens still shown)", cr.status);
   }
 
+  // --- Spend since the top-up date -> $ left ------------------------------
+  if (prepaidCents_ > 0 && topupEpoch_ > 0) {
+    char topupBuf[21];
+    fmtIso(topupEpoch_, topupBuf);
+    String sinceUrl = String("https://api.anthropic.com/v1/organizations/cost_report"
+                             "?starting_at=") + topupBuf + "&ending_at=" + endBuf +
+                      "&bucket_width=1d&limit=31";
+    HttpResult sr = http_->get(sinceUrl, extra, 3, nullptr, 0, "UsageMonitor/1.4");
+    if (sr.status == 200) {
+      JsonDocument doc;
+      if (!deserializeJson(doc, sr.body)) {
+        double spent = 0;
+        JsonArray data = doc["data"];
+        if (!data.isNull()) {
+          for (JsonVariant bucket : data) {
+            JsonVariant results = bucket["results"];
+            JsonArray rows = results.isNull() ? JsonArray() : results.as<JsonArray>();
+            for (JsonVariant row : rows) spent += atof(row["amount"] | "0");
+          }
+        }
+        out.spentSinceTopupCents = spent;
+        out.prepaidCents = prepaidCents_;
+        out.leftCents = prepaidCents_ - spent;
+        out.hasLeft = true;
+      }
+    } else {
+      sysLog("[claudeplat/since] status %d", sr.status);
+    }
+  }
+
   // Sort top models by cost (simple insertion sort on the small array).
   for (uint8_t i = 1; i < out.platCount; ++i) {
     ProviderQuota::PlatModel key = out.platModels[i];

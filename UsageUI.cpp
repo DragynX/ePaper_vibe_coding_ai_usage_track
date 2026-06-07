@@ -486,10 +486,16 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
   }
 
   int cy = y + 40;
+  char buf[48];
 
-  // Big 7-day cost (USD) + token total.
-  char buf[40];
-  if (p.hasCost) {
+  // Primary: $ left to spend (prepaid - spend since top-up). Fall back to the
+  // 7-day cost when no prepaid/top-up is configured.
+  if (p.hasLeft) {
+    snprintf(buf, sizeof(buf), "$%.2f", p.leftCents / 100.0);
+    renderer_.drawTextFace(buf, x, cy, TextFace::SansBold24, TextAlign::TopLeft, kText, kBg);
+    renderer_.drawTextFace("left to spend", x + w, cy + 10, TextFace::Sans9,
+                           TextAlign::TopRight, kMuted, kBg);
+  } else if (p.hasCost) {
     snprintf(buf, sizeof(buf), "$%.2f", p.costCents / 100.0);
     renderer_.drawTextFace(buf, x, cy, TextFace::SansBold24, TextAlign::TopLeft, kText, kBg);
     renderer_.drawTextFace("7-day cost", x + w, cy + 10, TextFace::Sans9,
@@ -498,41 +504,30 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
     renderer_.drawTextFace("$--", x, cy, TextFace::SansBold24, TextAlign::TopLeft, kMuted, kBg);
   }
   cy += 40;
-  if (p.hasBalance) {
-    const double tk = p.balance;
-    if (tk >= 1e9) snprintf(buf, sizeof(buf), "%.2fB tokens (7d)", tk / 1e9);
-    else if (tk >= 1e6) snprintf(buf, sizeof(buf), "%.1fM tokens (7d)", tk / 1e6);
-    else if (tk >= 1e3) snprintf(buf, sizeof(buf), "%.1fK tokens (7d)", tk / 1e3);
-    else snprintf(buf, sizeof(buf), "%.0f tokens (7d)", tk);
-    renderer_.drawTextFace(buf, x, cy, TextFace::Sans9, TextAlign::TopLeft, kText, kBg);
-  }
-  cy += 24;
   display_.fillRect(x, cy, w, 1, kLine);
   cy += 10;
 
-  // Per-model cost bars (top models, already sorted by cost desc).
+  // Per-model spend bars (top models, already sorted by cost desc).
   double maxCents = 0;
   for (uint8_t i = 0; i < p.platCount; ++i)
     if (p.platModels[i].cents > maxCents) maxCents = p.platModels[i].cents;
 
-  const int rowH = 34;
+  const int rowH = 30;
   const int labelW = 120;
   const int valW = 64;
-  for (uint8_t i = 0; i < p.platCount && cy + rowH <= y + h; ++i) {
+  for (uint8_t i = 0; i < p.platCount && cy + rowH <= y + h - 24; ++i) {
     const ProviderQuota::PlatModel& m = p.platModels[i];
-    // Shorten common model name prefixes for width.
     const char* nm = m.name;
-    if (strncmp(nm, "claude-", 7) == 0) nm += 7;
+    if (strncmp(nm, "claude-", 7) == 0) nm += 7;   // shorten for width
     renderer_.drawTextFace(nm, x, cy, TextFace::Sans9, TextAlign::TopLeft, kText, kBg);
     const int barX = x + labelW;
     const int barW = w - labelW - valW;
     const int barH = 12;
-    const int barY = cy + 2;
     if (barW > 10) {
-      display_.fillRect(barX, barY, barW, barH, kTrack);
+      display_.fillRect(barX, cy + 2, barW, barH, kTrack);
       const int fill = (maxCents > 0)
           ? static_cast<int>(barW * (m.cents / maxCents)) : 0;
-      if (fill > 0) display_.fillRect(barX, barY, fill, barH, kText);
+      if (fill > 0) display_.fillRect(barX, cy + 2, fill, barH, kText);
     }
     char vbuf[16];
     snprintf(vbuf, sizeof(vbuf), "$%.2f", m.cents / 100.0);
@@ -540,11 +535,22 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
                            TextAlign::TopRight, kText, kBg);
     cy += rowH;
   }
-
   if (p.platCount == 0 && p.ok) {
     renderer_.drawTextFace("No usage in last 7 days", x, cy, TextFace::Sans9,
                            TextAlign::TopLeft, kMuted, kBg);
+    cy += rowH;
   }
+
+  // Below the bars: 7-day cost total + 7-day tokens (muted).
+  const double tk = p.balance;
+  char tkBuf[20];
+  if (tk >= 1e9) snprintf(tkBuf, sizeof(tkBuf), "%.2fB", tk / 1e9);
+  else if (tk >= 1e6) snprintf(tkBuf, sizeof(tkBuf), "%.1fM", tk / 1e6);
+  else if (tk >= 1e3) snprintf(tkBuf, sizeof(tkBuf), "%.1fK", tk / 1e3);
+  else snprintf(tkBuf, sizeof(tkBuf), "%.0f", tk);
+  snprintf(buf, sizeof(buf), "7d cost $%.2f  -  7d tokens %s", p.costCents / 100.0, tkBuf);
+  renderer_.drawTextFace(buf, x, y + h - 16, TextFace::Sans9,
+                         TextAlign::TopLeft, kMuted, kBg);
 }
 
 void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuota& p,

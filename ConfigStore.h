@@ -38,6 +38,8 @@ class ConfigStore {
   const String& zaiEndpoint() const    { return za_ep_; }
   const String& claudePlatKey() const  { return cp_key_; }
   const String& claudePlatOrg() const  { return cp_org_; }
+  const String& claudePlatPrepaid() const { return cp_prepaid_; }
+  const String& claudePlatTopup() const   { return cp_topup_; }
   const String& localStatsUrl() const  { return ls_url_; }
 
   void setLeftProvider(uint8_t v)        { leftProv_ = v; }
@@ -63,6 +65,8 @@ class ConfigStore {
   void setZaiEndpoint(const String& v)   { za_ep_ = v; }
   void setClaudePlatKey(const String& v) { cp_key_ = v; }
   void setClaudePlatOrg(const String& v) { cp_org_ = v; }
+  void setClaudePlatPrepaid(const String& v) { cp_prepaid_ = v; }
+  void setClaudePlatTopup(const String& v)   { cp_topup_ = v; }
   void setLocalStatsUrl(const String& v) { ls_url_ = v; }
 
   String toJson() const;
@@ -90,6 +94,7 @@ class ConfigStore {
   String za_key_;
   String za_ep_ = "https://api.z.ai";
   String cp_key_, cp_org_;
+  String cp_prepaid_, cp_topup_;
   String ls_url_;
 };
 

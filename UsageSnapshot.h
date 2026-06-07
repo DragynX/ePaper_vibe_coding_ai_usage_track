@@ -70,6 +70,10 @@ struct ProviderQuota {
   bool   needAdminKey = false;        // key is not an sk-ant-admin key
   bool   hasCost = false;             // cost_report returned data
   double costCents = 0.0;             // 7-day total cost (USD cents)
+  bool   hasLeft = false;             // prepaid + top-up date configured
+  double prepaidCents = 0.0;          // user-entered prepaid amount
+  double spentSinceTopupCents = 0.0;  // cost since the top-up date
+  double leftCents = 0.0;             // prepaid - spentSinceTopup (can go negative)
   uint8_t platCount = 0;              // populated entries in platModels
   struct PlatModel { char name[20] = {0}; double tokens = 0.0; double cents = 0.0; };
   PlatModel platModels[5];            // top models by cost

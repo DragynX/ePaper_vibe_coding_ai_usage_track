@@ -216,12 +216,18 @@ void UsageApp::wireProvider(uint8_t prov, OAuthClient& oauth,
         client  = &zaiClient_;
         break;
 
-      case UM_PROV_CLAUDEPLAT:
+      case UM_PROV_CLAUDEPLAT: {
+        const double prepaidCents = atof(cfgStore_.claudePlatPrepaid().c_str()) * 100.0;
+        long topupEpoch = 0;
+        if (cfgStore_.claudePlatTopup().length() >= 10) {   // "YYYY-MM-DD"
+          topupEpoch = umParseIso8601((cfgStore_.claudePlatTopup() + "T00:00:00Z").c_str());
+        }
         claudePlatClient_.configure(&http_, cfgStore_.claudePlatKey(),
-                                    cfgStore_.claudePlatOrg());
+                                    cfgStore_.claudePlatOrg(), prepaidCents, topupEpoch);
         authPtr = nullptr;       // admin key never refreshed
         client  = &claudePlatClient_;
         break;
+      }
 
       default:
         authPtr = nullptr;

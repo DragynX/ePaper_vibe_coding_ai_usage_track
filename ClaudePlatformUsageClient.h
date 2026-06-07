@@ -15,10 +15,13 @@ namespace usage_monitor {
 
 class ClaudePlatformUsageClient : public UsageClientBase {
  public:
-  void configure(HttpClient* http, const String& adminKey, const String& orgId) {
-    http_     = http;
-    adminKey_ = adminKey;
-    orgId_    = orgId;
+  void configure(HttpClient* http, const String& adminKey, const String& orgId,
+                 double prepaidCents = 0.0, long topupEpoch = 0) {
+    http_         = http;
+    adminKey_     = adminKey;
+    orgId_        = orgId;
+    prepaidCents_ = prepaidCents;
+    topupEpoch_   = topupEpoch;
   }
   bool fetch(long nowEpoch, ProviderQuota& out) override;
 
@@ -26,6 +29,8 @@ class ClaudePlatformUsageClient : public UsageClientBase {
   HttpClient* http_    = nullptr;
   String      adminKey_;
   String      orgId_;
+  double      prepaidCents_ = 0.0;
+  long        topupEpoch_   = 0;
 };
 
 }  // namespace usage_monitor

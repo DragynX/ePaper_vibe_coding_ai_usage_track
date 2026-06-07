@@ -76,7 +76,9 @@ R"rawhtml(
   <details><summary id="s_claudeplat">Claude Platform (Admin Key)<button class="clrbtn" onclick="clearProv(event,7)">Clear Token</button></summary><div class="inner">
     <label>Admin API Key<textarea class="secret" id="cp_key" rows="2" spellcheck="false"></textarea></label>
     <label>Org ID (optional)<input type="text" id="cp_org" spellcheck="false"></label>
-    <p class="note">From console.anthropic.com &#8594; API Keys &#8594; Admin Key. Shows 7-day token totals.</p>
+    <label>Prepaid Amount ($)<input type="number" step="0.01" id="cp_prepaid" placeholder="e.g. 50.00"></label>
+    <label>Top-up Date<input type="date" id="cp_topup"></label>
+    <p class="note">From console.anthropic.com &#8594; API Keys &#8594; Admin Key. "$ left" = prepaid &#8722; spend since the top-up date. Re-enter when you replenish (within ~31 days).</p>
   </div></details>
   <details><summary id="s_codex">Codex OAuth<button class="clrbtn" onclick="clearProv(event,2)">Clear Token</button></summary><div class="inner">
     <label>Access Token<textarea class="secret" id="cx_at" rows="2" spellcheck="false"></textarea></label>
@@ -210,7 +212,7 @@ function onTzSel(v){
 const STR_IDS=['cl_at','cl_rt','cl_sub',
                'cx_at','cx_rt','cx_aid',
                'co_pat','mm_key','ki_tok',
-               'za_key','za_ep','cp_key','cp_org','ls_url'];
+               'za_key','za_ep','cp_key','cp_org','cp_prepaid','cp_topup','ls_url'];
 // datetime-local <-> wire format (cl_exp: ms epoch string, cx_lr: ISO8601)
 function msToLocal(ms){const n=parseInt(ms);if(!n)return'';
   const d=new Date(n);return new Date(n-d.getTimezoneOffset()*60000).toISOString().slice(0,16);}
