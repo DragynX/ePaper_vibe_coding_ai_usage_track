@@ -361,7 +361,10 @@ void UsageApp::begin() {
 
   ui_.begin();
   ui_.setDarkMode(cfgStore_.darkMode());
-  ui_.drawBoot(uiStr(UiStringId::kBootWifi), currentStatus(), now());
+  // Cold boot: full splash (nothing to preserve). Wake: keep the persisted
+  // dashboard, show a small status line under the title via partial refresh.
+  if (firstBoot) ui_.drawBoot(uiStr(UiStringId::kBootWifi), currentStatus(), now());
+  else           ui_.drawWakeStatus(uiStr(UiStringId::kBootWifi));
 
   if (!ensureWiFi(15000)) {
     sysLog("[wifi] STA failed — launching portal");
@@ -393,7 +396,12 @@ void UsageApp::begin() {
          WiFi.localIP().toString().c_str());
 
   syncTime();   // non-blocking: starts background SNTP, no splash screen
-  ui_.drawBoot(uiStr(UiStringId::kBootFetch), currentStatus(), now());
+  if (firstBoot) {
+    ui_.drawBoot(uiStr(UiStringId::kBootFetch), currentStatus(), now());
+    ui_.forceFullRefresh();   // clean full-refresh baseline on cold boot
+  } else {
+    ui_.drawWakeStatus(uiStr(UiStringId::kBootFetch));
+  }
   refreshAll();
   lastRefreshMs_ = millis();
   awakeStartMs_  = millis();   // awake window starts after fetch + display
