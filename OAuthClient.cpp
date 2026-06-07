@@ -33,8 +33,9 @@ AuthedResult OAuthClient::get(const String& url, const HttpHeader* extra, size_t
     sysLog("[oauth] token expired, proactive refresh");
     if (provider_->refresh(*http_, *state_, nowEpoch, ar.needsRelogin)) {
       ar.refreshed = true;
-    } else if (ar.needsRelogin) {
-      sysLog("[oauth] proactive refresh failed, needsRelogin");
+    } else {
+      if (!ar.needsRelogin) ar.refreshFailed = true;  // failed but not revoked
+      sysLog("[oauth] proactive refresh failed, needsRelogin=%d", (int)ar.needsRelogin);
       return ar;
     }
   }
@@ -62,6 +63,7 @@ AuthedResult OAuthClient::get(const String& url, const HttpHeader* extra, size_t
       if (provider_->refresh(*http_, *state_, nowEpoch, ar.needsRelogin)) {
         ar.refreshed = true;
       } else {
+        if (!ar.needsRelogin) ar.refreshFailed = true;
         sysLog("[oauth] reactive refresh failed, needsRelogin=%d", (int)ar.needsRelogin);
         break;
       }
@@ -84,8 +86,9 @@ AuthedResult OAuthClient::post(const String& url, const HttpHeader* extra, size_
     sysLog("[oauth] token expired, proactive refresh");
     if (provider_->refresh(*http_, *state_, nowEpoch, ar.needsRelogin)) {
       ar.refreshed = true;
-    } else if (ar.needsRelogin) {
-      sysLog("[oauth] proactive refresh failed, needsRelogin");
+    } else {
+      if (!ar.needsRelogin) ar.refreshFailed = true;
+      sysLog("[oauth] proactive refresh failed, needsRelogin=%d", (int)ar.needsRelogin);
       return ar;
     }
   }
@@ -109,7 +112,8 @@ AuthedResult OAuthClient::post(const String& url, const HttpHeader* extra, size_
     if (attempt == 0) {
       sysLog("[oauth] %d -> reactive refresh", ar.http.status);
       if (provider_->refresh(*http_, *state_, nowEpoch, ar.needsRelogin)) ar.refreshed = true;
-      else { sysLog("[oauth] reactive refresh failed, needsRelogin=%d", (int)ar.needsRelogin); break; }
+      else { if (!ar.needsRelogin) ar.refreshFailed = true;
+             sysLog("[oauth] reactive refresh failed, needsRelogin=%d", (int)ar.needsRelogin); break; }
     }
   }
   return ar;

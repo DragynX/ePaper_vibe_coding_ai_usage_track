@@ -171,6 +171,10 @@ R"rawhtml(
     <input type="checkbox" id="dark">
     <span>Dark mode (screen)</span>
   </label>
+  <label class="chkrow" style="margin-top:10px">
+    <input type="checkbox" id="secure">
+    <span>Secure Tokens (hide saved tokens; reveal only what you type this session)</span>
+  </label>
   <p class="note" style="margin-top:4px">When on: settings page is only available for 5 min after power-on/reset. Device sleeps between fetches.</p>
   <div class="row" style="margin-top:20px">
     <button class="btn info" onclick="doRestart()">Restart Device</button>
@@ -218,10 +222,11 @@ function populate(c){
     const el=document.getElementById(id);
     if(el)el.value=c[id]??'';
   });
-  // Secrets are never sent back; show saved state via placeholder.
+  // Secrets: echoed (real value) only when Secure Tokens is off; otherwise blank
+  // with a "saved" placeholder. Masking/reveal is handled by the .secret CSS.
   SECRET_IDS.forEach(id=>{
     const el=document.getElementById(id);
-    if(el){el.value='';el.placeholder=c[id+'_set']?'saved — leave blank to keep':'not set';}
+    if(el){el.value=c[id]??'';el.placeholder=c[id+'_set']?'saved — leave blank to keep':'not set';}
   });
   const sub=document.getElementById('cl_sub');
   if(sub){
@@ -234,6 +239,7 @@ function populate(c){
   const rs=document.getElementById('ref_sec');if(rs){rs.value=c.ref_sec??300;updRef(rs.value);}
   const ds=document.getElementById('deep_sleep');if(ds)ds.checked=!!c.deep_sleep;
   const dk=document.getElementById('dark');if(dk)dk.checked=!!c.dark;
+  const se=document.getElementById('secure');if(se)se.checked=!!c.secure;
   const lp=document.getElementById('left_prov');if(lp)lp.value=String(c.left_prov??0);
   const rp=document.getElementById('right_prov');if(rp)rp.value=String(c.right_prov??0);
   const tzv=c.tz??'UTC0';
@@ -252,6 +258,7 @@ function collect(){
   d.ref_sec=parseInt(document.getElementById('ref_sec').value);
   d.deep_sleep=document.getElementById('deep_sleep').checked;
   d.dark=document.getElementById('dark').checked;
+  d.secure=document.getElementById('secure').checked;
   d.left_prov=parseInt(document.getElementById('left_prov').value);
   d.right_prov=parseInt(document.getElementById('right_prov').value);
   const tzSel=document.getElementById('tz_sel');
@@ -270,7 +277,8 @@ async function doSave(){
     const r=await fetch('/api/settings',{method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(collect())});
-    r.ok?setMsg('Saved!','green'):setMsg('Error '+r.status,'red');
+    if(r.ok){setMsg('Saved! Testing tokens…','green');pollCredFor(30000);}
+    else setMsg('Error '+r.status,'red');
   }catch(e){setMsg('Failed','red');}
 }
 async function doRestart(){
@@ -314,7 +322,20 @@ async function loadSt(){
     document.getElementById('st_box').innerHTML='<div class="srow"><span>Unavailable</span></div>';
   }
 }
+// Map each provider to its secret-field boxes; color them by test status.
+const PROV_FIELDS={claude:['cl_at','cl_rt'],codex:['cx_at','cx_rt'],copilot:['co_pat'],
+  minimax:['mm_key'],kimi:['ki_tok'],zai:['za_key'],claudeplat:['cp_key']};
+const CRED_BG={ok:'#d6f5d6',fail:'#f8d2d2',none:'',testing:''};
+function applyCred(st){
+  for(const p in PROV_FIELDS){
+    const bg=CRED_BG[st[p]??'none']??'';
+    PROV_FIELDS[p].forEach(id=>{const el=document.getElementById(id);if(el)el.style.background=bg;});
+  }
+}
+async function pollCred(){try{applyCred(await fetch('/api/credstatus',{cache:'no-store'}).then(r=>r.json()));}catch(e){}}
+function pollCredFor(ms){const end=Date.now()+ms;const t=setInterval(()=>{pollCred();if(Date.now()>end)clearInterval(t);},2000);}
 fetch('/api/settings').then(r=>r.json()).then(populate).catch(console.error);
+pollCred();
 </script>
 </body>
 </html>
@@ -342,10 +363,12 @@ static String jsonEscape(const String& in) {
 }
 
 void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battPct)(),
-                           std::function<void()> onSaved) {
+                           std::function<void()> onSaved,
+                           std::function<String()> credJson) {
   cfg_ = cfg;
   battPct_ = battPct;
   onSaved_ = onSaved;
+  credJson_ = credJson;
 
   // GET / → settings page
   server->on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
@@ -395,6 +418,11 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
       b->concat(reinterpret_cast<const char*>(data), len);
     }
   );
+
+  // GET /api/credstatus → per-provider credential test status
+  server->on("/api/credstatus", HTTP_GET, [this](AsyncWebServerRequest* req) {
+    req->send(200, "application/json", credJson_ ? credJson_() : "{}");
+  });
 
   // GET /api/status → live info
   server->on("/api/status", HTTP_GET, [this](AsyncWebServerRequest* req) {

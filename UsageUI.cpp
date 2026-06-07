@@ -588,7 +588,7 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
     return;
   }
   if (p.needsRelogin) {
-    drawReloginColumn(x, y, w, h, name);
+    drawNoticeColumn(x, y, w, h, name, "Token Revoked or Expired. Update Tokens");
     return;
   }
 

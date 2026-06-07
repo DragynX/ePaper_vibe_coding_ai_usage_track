@@ -26,6 +26,16 @@ boundary is the home Wi-Fi network and physical possession of the device.
 - **`.gitignore`** now ignores root `secrets.h` (sources moved out of `src/`), so a
   real key file can't be committed by accident.
 
+## Secure Tokens toggle (v1.3.0)
+
+System tab has a **"Secure Tokens"** switch, default **OFF**:
+- **OFF** (default): `GET /api/settings` returns stored token values so the
+  Credentials boxes can reveal them on click and persist across reloads. Tokens
+  cross the LAN in cleartext on each page load — convenient, less private.
+- **ON**: restores the v1.1.9 behavior — secrets are never echoed (only a
+  `<key>_set` flag); a box reveals only what you type that session.
+Turn it ON if your LAN is shared/untrusted.
+
 ## Deferred (accepted risk for a trusted LAN; revisit before any wider exposure)
 
 - **No authentication / CSRF on `/api/*`.** Any LAN device can change settings or

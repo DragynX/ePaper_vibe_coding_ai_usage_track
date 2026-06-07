@@ -45,6 +45,11 @@ class UsageApp {
   void fetchRight(long nowEpoch);
   void fetchLocalStats();
   void configureProviders();
+  void wireProvider(uint8_t prov, OAuthClient& oauth,
+                    UsageClientBase*& client, AuthState*& authPtr);
+  uint8_t testProvider(uint8_t prov);   // returns kCred* status
+  void runPendingTokenTests();
+  String credStatusJson();
   void enterDeepSleep();
 
   HttpClient    http_;
@@ -68,6 +73,10 @@ class UsageApp {
   uint8_t leftFailCount_  = 0, rightFailCount_ = 0;
   bool    leftDisabled_   = false, rightDisabled_ = false;
   char    leftFailReason_[48] = {0}, rightFailReason_[48] = {0};
+
+  // Per-provider credential status for the Credentials page (index = provider
+  // id 0..7): 0=none/white 1=ok/green 2=fail/red 3=testing.
+  uint8_t credStatus_[8] = {0};
 
   // Per-provider auth states
   AuthState claudeAuth_, codexAuth_, copilotAuth_,

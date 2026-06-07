@@ -18,6 +18,7 @@ bool MiniMaxUsageClient::fetch(long now, ProviderQuota& out) {
     { "Accept", "application/json" },
   };
   AuthedResult ar = oauth_->get(url, extra, 1, nullptr, 0, now, "UsageMonitor");
+  out.refreshFailed = ar.refreshFailed;
   if (ar.needsRelogin) { out.needsRelogin = true; return false; }
   if (ar.http.status != 200) {
     sysLog("[minimax/usage] status %d", ar.http.status);

@@ -60,6 +60,7 @@ bool ClaudeUsageClient::fetch(long now, ProviderQuota& out) {
   AuthedResult ar = oauth_->get("https://api.anthropic.com/api/oauth/usage",
                                 extra, 3, nullptr, 0, now,
                                 "claude-cli/2.0.14 (external, cli)");
+  out.refreshFailed = ar.refreshFailed;
   if (ar.needsRelogin) { out.needsRelogin = true; return false; }
   if (ar.http.status != 200) {
     sysLog("[claude/usage] status %d", ar.http.status);

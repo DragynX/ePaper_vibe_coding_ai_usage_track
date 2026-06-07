@@ -4,6 +4,7 @@
 #include <Preferences.h>
 
 #include "AppLog.h"
+#include "ProviderSelect.h"
 
 namespace usage_monitor {
 
@@ -20,6 +21,7 @@ void ConfigStore::load() {
   refreshSec_ = p.getUInt("ref_sec", 300);
   deepSleep_  = p.getBool("deep_sleep", false);
   dark_       = p.getBool("dark", false);
+  secure_     = p.getBool("secure", false);
   cl_at_  = p.getString("cl_at",  "");
   cl_rt_  = p.getString("cl_rt",  "");
   cl_exp_ = p.getString("cl_exp", "0");
@@ -50,6 +52,7 @@ void ConfigStore::save() {
   p.putUInt("ref_sec",     refreshSec_);
   p.putBool("deep_sleep",  deepSleep_);
   p.putBool("dark",        dark_);
+  p.putBool("secure",      secure_);
   p.putString("cl_at",     cl_at_);
   p.putString("cl_rt",     cl_rt_);
   p.putString("cl_exp",    cl_exp_);
@@ -79,32 +82,29 @@ String ConfigStore::toJson() const {
   doc["ref_sec"]    = refreshSec_;
   doc["deep_sleep"] = deepSleep_;
   doc["dark"]       = dark_;
-  // Secret fields are never echoed back: the GET response is reachable by any
-  // LAN client. Emit "" plus a <key>_set flag so the UI can show saved state.
-  doc["cl_at"]      = "";
-  doc["cl_at_set"]  = cl_at_.length()  > 0;
-  doc["cl_rt"]      = "";
-  doc["cl_rt_set"]  = cl_rt_.length()  > 0;
+  doc["secure"]     = secure_;
+  // Secret fields: when Secure Tokens is ON they are NOT echoed (only a
+  // <key>_set flag) so they never cross the LAN; when OFF the real value is
+  // returned so the box can reveal it on click. _set flags are always emitted.
+  auto secret = [&](const char* key, const String& v) {
+    doc[key] = secure_ ? String("") : v;
+    doc[String(key) + "_set"] = v.length() > 0;
+  };
+  secret("cl_at", cl_at_);
+  secret("cl_rt", cl_rt_);
   doc["cl_exp"]     = cl_exp_;
   doc["cl_sub"]     = cl_sub_;
-  doc["cx_at"]      = "";
-  doc["cx_at_set"]  = cx_at_.length()  > 0;
-  doc["cx_rt"]      = "";
-  doc["cx_rt_set"]  = cx_rt_.length()  > 0;
+  secret("cx_at", cx_at_);
+  secret("cx_rt", cx_rt_);
   doc["cx_aid"]     = cx_aid_;
   doc["cx_lr"]      = cx_lr_;
-  doc["co_pat"]     = "";
-  doc["co_pat_set"] = co_pat_.length() > 0;
-  doc["mm_key"]     = "";
-  doc["mm_key_set"] = mm_key_.length() > 0;
+  secret("co_pat", co_pat_);
+  secret("mm_key", mm_key_);
   doc["mm_reg"]     = mm_reg_;
-  doc["ki_tok"]     = "";
-  doc["ki_tok_set"] = ki_tok_.length() > 0;
-  doc["za_key"]     = "";
-  doc["za_key_set"] = za_key_.length() > 0;
+  secret("ki_tok", ki_tok_);
+  secret("za_key", za_key_);
   doc["za_ep"]      = za_ep_;
-  doc["cp_key"]     = "";
-  doc["cp_key_set"] = cp_key_.length() > 0;
+  secret("cp_key", cp_key_);
   doc["cp_org"]     = cp_org_;
   doc["ls_url"]     = ls_url_;
   String out;
@@ -115,14 +115,16 @@ String ConfigStore::toJson() const {
 bool ConfigStore::fromJson(const String& json) {
   JsonDocument doc;
   if (deserializeJson(doc, json)) return false;
+  pendingTestMask_ = 0;
   // Secret fields use keep-if-blank: a missing or empty value preserves the
-  // stored secret (the UI never receives it back, so a plain save must not
-  // wipe it). Non-secret fields keep the missing-only guard.
-  auto setSecret = [&](const char* key, String& dst) {
-    if (!doc[key].isNull()) {
-      const String v = doc[key].as<String>();
-      if (v.length() > 0) dst = v;
-    }
+  // stored secret (under Secure Tokens the UI never gets it back, so a plain
+  // save must not wipe it). When the value is non-empty AND different from what
+  // is stored, the provider is flagged for a token test.
+  auto setSecret = [&](const char* key, String& dst, uint8_t prov) {
+    if (doc[key].isNull()) return;
+    const String v = doc[key].as<String>();
+    if (v.length() == 0) return;
+    if (v != dst) { dst = v; pendingTestMask_ |= (uint8_t)(1u << prov); }
   };
   leftProv_  = doc["left_prov"]  | leftProv_;
   rightProv_ = doc["right_prov"] | rightProv_;
@@ -130,21 +132,22 @@ bool ConfigStore::fromJson(const String& json) {
   setRefreshSec(doc["ref_sec"] | refreshSec_);
   deepSleep_ = doc["deep_sleep"] | deepSleep_;
   dark_      = doc["dark"] | dark_;
-  setSecret("cl_at", cl_at_);
-  setSecret("cl_rt", cl_rt_);
+  secure_    = doc["secure"] | secure_;
+  setSecret("cl_at", cl_at_, UM_PROV_CLAUDE);
+  setSecret("cl_rt", cl_rt_, UM_PROV_CLAUDE);
   if (!doc["cl_exp"].isNull()) cl_exp_ = doc["cl_exp"].as<String>();
   if (!doc["cl_sub"].isNull()) cl_sub_ = doc["cl_sub"].as<String>();
-  setSecret("cx_at", cx_at_);
-  setSecret("cx_rt", cx_rt_);
+  setSecret("cx_at", cx_at_, UM_PROV_CODEX);
+  setSecret("cx_rt", cx_rt_, UM_PROV_CODEX);
   if (!doc["cx_aid"].isNull()) cx_aid_ = doc["cx_aid"].as<String>();
   if (!doc["cx_lr"].isNull())  cx_lr_  = doc["cx_lr"].as<String>();
-  setSecret("co_pat", co_pat_);
-  setSecret("mm_key", mm_key_);
+  setSecret("co_pat", co_pat_, UM_PROV_COPILOT);
+  setSecret("mm_key", mm_key_, UM_PROV_MINIMAX);
   mm_reg_ = doc["mm_reg"] | mm_reg_;
-  setSecret("ki_tok", ki_tok_);
-  setSecret("za_key", za_key_);
+  setSecret("ki_tok", ki_tok_, UM_PROV_KIMI);
+  setSecret("za_key", za_key_, UM_PROV_ZAI);
   if (!doc["za_ep"].isNull())  za_ep_  = doc["za_ep"].as<String>();
-  setSecret("cp_key", cp_key_);
+  setSecret("cp_key", cp_key_, UM_PROV_CLAUDEPLAT);
   if (!doc["cp_org"].isNull()) cp_org_ = doc["cp_org"].as<String>();
   if (!doc["ls_url"].isNull()) ls_url_ = doc["ls_url"].as<String>();
   return true;

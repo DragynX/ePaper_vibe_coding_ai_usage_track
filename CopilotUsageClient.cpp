@@ -18,6 +18,7 @@ bool CopilotUsageClient::fetch(long now, ProviderQuota& out) {
   };
   AuthedResult ar = oauth_->get("https://api.github.com/copilot_internal/user",
                                 extra, 1, nullptr, 0, now, "UsageMonitor");
+  out.refreshFailed = ar.refreshFailed;
   if (ar.needsRelogin) { out.needsRelogin = true; return false; }
   if (ar.http.status != 200) {
     sysLog("[copilot/usage] status %d", ar.http.status);

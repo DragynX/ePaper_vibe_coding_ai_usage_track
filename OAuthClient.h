@@ -45,6 +45,7 @@ struct AuthedResult {
   HttpResult http;
   bool refreshed = false;       // a token refresh happened during this call
   bool needsRelogin = false;    // refresh token is dead; user must re-login
+  bool refreshFailed = false;   // a refresh was attempted and failed (not revoked)
 };
 
 class OAuthClient {

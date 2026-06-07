@@ -32,6 +32,7 @@ bool KimiUsageClient::fetch(long now, ProviderQuota& out) {
       extra, 6, body, "application/json", now,
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36");
 
+  out.refreshFailed = ar.refreshFailed;
   if (ar.needsRelogin) { out.needsRelogin = true; return false; }
   if (ar.http.status != 200) {
     sysLog("[kimi/usage] status %d", ar.http.status);

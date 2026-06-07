@@ -128,7 +128,11 @@ UsageApp::UsageApp() : server_(80) {}
 // configureProviders — wire up one side (left or right) based on prov ID
 // ---------------------------------------------------------------------------
 
-void UsageApp::configureProviders() {
+// Wire one provider id into the given OAuth client + usage client + auth state,
+// using the member auth/client objects. Shared by configureProviders (live
+// left/right) and testProvider (scratch wiring for a token test).
+void UsageApp::wireProvider(uint8_t prov, OAuthClient& oauth,
+                            UsageClientBase*& client, AuthState*& authPtr) {
   // Resume the cached (rotated) token chain only while it derives from the
   // credentials currently in settings; new credentials invalidate the cache.
   auto loadCache = [this](const char* pk, AuthState& auth, const String& seed) {
@@ -141,8 +145,7 @@ void UsageApp::configureProviders() {
     }
   };
 
-  auto doSide = [this, &loadCache](uint8_t prov, OAuthClient& oauth,
-                                   UsageClientBase*& client, AuthState*& authPtr) {
+  {
     switch (prov) {
       case UM_PROV_CLAUDE:
         claudeAuth_.accessToken       = cfgStore_.claudeAt();
@@ -225,18 +228,74 @@ void UsageApp::configureProviders() {
         client  = nullptr;
         break;
     }
-  };
+  }
+}
 
-  doSide(cfgStore_.leftProvider(),  leftOAuth_,  leftClient_,  leftAuthPtr_);
+void UsageApp::configureProviders() {
+  wireProvider(cfgStore_.leftProvider(),  leftOAuth_,  leftClient_,  leftAuthPtr_);
   sysLog("[prov] left=%s at_len=%d rt_len=%d",
          providerName(cfgStore_.leftProvider()),
          leftAuthPtr_  ? (int)leftAuthPtr_->accessToken.length()  : -1,
          leftAuthPtr_  ? (int)leftAuthPtr_->refreshToken.length() : -1);
-  doSide(cfgStore_.rightProvider(), rightOAuth_, rightClient_, rightAuthPtr_);
+  wireProvider(cfgStore_.rightProvider(), rightOAuth_, rightClient_, rightAuthPtr_);
   sysLog("[prov] right=%s at_len=%d rt_len=%d",
          providerName(cfgStore_.rightProvider()),
          rightAuthPtr_ ? (int)rightAuthPtr_->accessToken.length()  : -1,
          rightAuthPtr_ ? (int)rightAuthPtr_->refreshToken.length() : -1);
+}
+
+// ---------------------------------------------------------------------------
+// Token test + per-credential status
+// ---------------------------------------------------------------------------
+
+enum { kCredNone = 0, kCredOk = 1, kCredFail = 2, kCredTesting = 3 };
+
+// Validate one provider's stored credentials by making its real usage call into
+// a scratch wiring. Persists any rotated token on success. Returns kCredOk/Fail.
+uint8_t UsageApp::testProvider(uint8_t prov) {
+  OAuthClient scratch;
+  UsageClientBase* client = nullptr;
+  AuthState* authPtr = nullptr;
+  wireProvider(prov, scratch, client, authPtr);
+  if (!client) return kCredFail;
+  ProviderQuota tmp;
+  const bool ok = client->fetch(now(), tmp);
+  if (ok && authPtr) {
+    store_.save(providerKey(prov), *authPtr, seedFor(prov, cfgStore_));
+  }
+  sysLog("[test] %s -> %s (status=%d)", providerName(prov), ok ? "OK" : "FAIL",
+         http_.lastStatus());
+  return ok ? kCredOk : kCredFail;
+}
+
+void UsageApp::runPendingTokenTests() {
+  const uint8_t mask = cfgStore_.pendingTestMask();
+  cfgStore_.clearPendingTest();
+  if (!mask) return;
+  for (uint8_t prov = 1; prov <= 7; ++prov) {
+    if (mask & (uint8_t)(1u << prov)) {
+      credStatus_[prov] = kCredTesting;
+      credStatus_[prov] = testProvider(prov);
+    }
+  }
+  // testProvider repoints member usage clients at the scratch OAuthClient;
+  // restore the live left/right wiring before normal fetching resumes.
+  configureProviders();
+}
+
+String UsageApp::credStatusJson() {
+  static const char* kKeys[8] = { "", "claude", "codex", "copilot", "minimax",
+                                  "kimi", "zai", "claudeplat" };
+  static const char* kVal[4]  = { "none", "ok", "fail", "testing" };
+  String s = "{";
+  for (uint8_t p = 1; p <= 7; ++p) {
+    if (p > 1) s += ",";
+    s += "\""; s += kKeys[p]; s += "\":\"";
+    s += kVal[credStatus_[p] <= 3 ? credStatus_[p] : 0];
+    s += "\"";
+  }
+  s += "}";
+  return s;
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +361,8 @@ void UsageApp::begin() {
     // onSaved runs in the async server task — only flip a flag; the actual
     // palette swap + e-paper repaint happens in loop() (SPI not async-safe).
     settings_.begin(&server_, &cfgStore_, &readBatteryPercent,
-                    [this]() { redrawPending_ = true; });
+                    [this]() { redrawPending_ = true; },
+                    [this]() { return credStatusJson(); });
     server_.begin();
     sysLog("[settings] http://usagemonitor.local or http://%s",
            WiFi.localIP().toString().c_str());
@@ -334,8 +394,12 @@ void UsageApp::loop() {
     ui_.setDarkMode(cfgStore_.darkMode());
     sysLog("[ui] settings applied (dark=%d), breakers reset",
            cfgStore_.darkMode() ? 1 : 0);
-    if (ensureWiFi(10000)) refreshAll();   // refreshAll repaints with the new palette
-    else ui_.drawDashboard(snapshot_, currentStatus(), now());
+    if (ensureWiFi(10000)) {
+      runPendingTokenTests();   // test changed creds, then restore live wiring
+      refreshAll();             // repaint with the new palette + displayed data
+    } else {
+      ui_.drawDashboard(snapshot_, currentStatus(), now());
+    }
   }
 
   if (!settingsAvailable_) {
@@ -450,13 +514,14 @@ void UsageApp::setProviderNames() {
 // ---------------------------------------------------------------------------
 
 // Compose the on-screen stop reason from what the last fetch revealed.
-static void buildFailReason(char* buf, size_t n, bool relogin, int status,
-                            const String& err) {
-  if (relogin)           snprintf(buf, n, "Re-login required");
-  else if (err.length()) snprintf(buf, n, "%.*s", (int)n - 1, err.c_str());
-  else if (status > 0)   snprintf(buf, n, "HTTP %d", status);
-  else if (status < 0)   snprintf(buf, n, "Network error");
-  else                   snprintf(buf, n, "Check Provider Settings");
+static void buildFailReason(char* buf, size_t n, bool relogin, bool refreshFailed,
+                            int status, const String& err) {
+  if (relogin)             snprintf(buf, n, "Token Revoked or Expired. Update Tokens");
+  else if (refreshFailed)  snprintf(buf, n, "Refresh Token Failing");
+  else if (err.length())   snprintf(buf, n, "%.*s", (int)n - 1, err.c_str());
+  else if (status > 0)     snprintf(buf, n, "HTTP %d", status);
+  else if (status < 0)     snprintf(buf, n, "Network error");
+  else                     snprintf(buf, n, "Check Provider Settings");
 }
 
 void UsageApp::fetchLeft(long n) {
@@ -479,6 +544,7 @@ void UsageApp::fetchLeft(long n) {
   }
   if (leftClient_->fetch(n, snapshot_.left)) {
     leftFailCount_ = 0;
+    credStatus_[cfgStore_.leftProvider()] = kCredOk;
     sysLog("[api] %s OK session=%d%% weekly=%d%% (present s=%d w=%d)",
            providerName(cfgStore_.leftProvider()),
            (int)(snapshot_.left.session.usedPercent + 0.5),
@@ -496,8 +562,10 @@ void UsageApp::fetchLeft(long n) {
       sysLog("[fetch] left ok, token saved");
     }
   } else {
+    credStatus_[cfgStore_.leftProvider()] = kCredFail;
     buildFailReason(leftFailReason_, sizeof(leftFailReason_),
-                    snapshot_.left.needsRelogin, http_.lastStatus(), http_.lastError());
+                    snapshot_.left.needsRelogin, snapshot_.left.refreshFailed,
+                    http_.lastStatus(), http_.lastError());
     if (++leftFailCount_ >= 2) {
       leftDisabled_ = true;
       snapshot_.left.disabled = true;
@@ -530,6 +598,7 @@ void UsageApp::fetchRight(long n) {
   }
   if (rightClient_->fetch(n, snapshot_.right)) {
     rightFailCount_ = 0;
+    credStatus_[cfgStore_.rightProvider()] = kCredOk;
     sysLog("[api] %s OK session=%d%% weekly=%d%% (present s=%d w=%d)",
            providerName(cfgStore_.rightProvider()),
            (int)(snapshot_.right.session.usedPercent + 0.5),
@@ -547,8 +616,10 @@ void UsageApp::fetchRight(long n) {
       sysLog("[fetch] right ok, token saved");
     }
   } else {
+    credStatus_[cfgStore_.rightProvider()] = kCredFail;
     buildFailReason(rightFailReason_, sizeof(rightFailReason_),
-                    snapshot_.right.needsRelogin, http_.lastStatus(), http_.lastError());
+                    snapshot_.right.needsRelogin, snapshot_.right.refreshFailed,
+                    http_.lastStatus(), http_.lastError());
     if (++rightFailCount_ >= 2) {
       rightDisabled_ = true;
       snapshot_.right.disabled = true;
