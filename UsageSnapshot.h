@@ -82,6 +82,7 @@ struct ProviderQuota {
 
   // Stale when the last fetch failed, never succeeded, or is older than ttlSec.
   bool isStale(long nowEpoch, long ttlSec) const {
+    if (nowEpoch < 1577836800L) return false;   // clock not synced yet — can't judge
     if (!ok || lastSuccessEpoch <= 0) return true;
     return (nowEpoch - lastSuccessEpoch) > ttlSec;
   }

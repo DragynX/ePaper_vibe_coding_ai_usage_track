@@ -376,8 +376,7 @@ void UsageApp::begin() {
            WiFi.localIP().toString().c_str());
   }
 
-  ui_.drawBoot(uiStr(UiStringId::kBootSync), currentStatus(), now());
-  syncTime();
+  syncTime();   // non-blocking: starts background SNTP, no splash screen
   ui_.drawBoot(uiStr(UiStringId::kBootFetch), currentStatus(), now());
   refreshAll();
   lastRefreshMs_ = millis();
@@ -483,18 +482,13 @@ bool UsageApp::ensureWiFi(uint32_t timeoutMs) {
 }
 
 void UsageApp::syncTime() {
-  sysLog("[ntp] tz=%s servers=pool.ntp.org,time.nist.gov", cfgStore_.tz().c_str());
+  // Kick off SNTP in the background and return immediately — never block, never
+  // show it on screen. The ESP32 RTC keeps time between fetches and across deep
+  // sleep, so warm wakes are already valid; SNTP corrects the clock when the
+  // first packet lands (cold boot) and re-syncs periodically on its own.
   configTzTime(cfgStore_.tz().c_str(), "pool.ntp.org", "time.nist.gov");
-  for (int i = 0; i < 60 && static_cast<long>(time(nullptr)) < kSanityFloorEpoch; ++i) {
-    delay(500);
-  }
-  if (static_cast<long>(time(nullptr)) >= kSanityFloorEpoch) {
-    timeSynced_ = true;
-    sysLog("[time] NTP ok: %ld", static_cast<long>(time(nullptr)));
-  } else {
-    sysLog("[time] NTP failed");
-    sysLog("[time] WARN proceeding without synced clock — expiry math degraded");
-  }
+  timeSynced_ = (static_cast<long>(time(nullptr)) >= kSanityFloorEpoch);
+  sysLog("[ntp] background sync started (rtc_valid=%d)", timeSynced_ ? 1 : 0);
 }
 
 long UsageApp::now() { return static_cast<long>(time(nullptr)); }
