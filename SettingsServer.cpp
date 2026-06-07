@@ -208,10 +208,16 @@ function msToLocal(ms){const n=parseInt(ms);if(!n)return'';
 function localToMs(v){return v?String(new Date(v).getTime()):'0';}
 function isoToLocal(s){const t=Date.parse(s);return isNaN(t)?'':msToLocal(t);}
 function localToIso(v){return v?new Date(v).toISOString():'0';}
+const SECRET_IDS=['cl_at','cl_rt','cx_at','cx_rt','co_pat','mm_key','ki_tok','za_key','cp_key'];
 function populate(c){
   STR_IDS.forEach(id=>{
     const el=document.getElementById(id);
     if(el)el.value=c[id]??'';
+  });
+  // Secrets are never sent back; show saved state via placeholder.
+  SECRET_IDS.forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){el.value='';el.placeholder=c[id+'_set']?'saved — leave blank to keep':'not set';}
   });
   const sub=document.getElementById('cl_sub');
   if(sub){
@@ -310,6 +316,25 @@ fetch('/api/settings').then(r=>r.json()).then(populate).catch(console.error);
 
 // ---------------------------------------------------------------------------
 
+// Escape a string for safe inclusion inside a JSON string literal: backslash,
+// double-quote, and control chars (< 0x20). SSID is user/AP-controlled.
+static String jsonEscape(const String& in) {
+  String out;
+  out.reserve(in.length() + 8);
+  for (size_t i = 0; i < in.length(); ++i) {
+    const char c = in[i];
+    if (c == '"' || c == '\\') { out += '\\'; out += c; }
+    else if (static_cast<uint8_t>(c) < 0x20) {
+      char buf[7];
+      snprintf(buf, sizeof(buf), "\\u%04x", c);
+      out += buf;
+    } else {
+      out += c;
+    }
+  }
+  return out;
+}
+
 void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battPct)()) {
   cfg_ = cfg;
   battPct_ = battPct;
@@ -328,32 +353,44 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
   server->on("/api/settings", HTTP_POST,
     [this](AsyncWebServerRequest* req) {
       String* body = reinterpret_cast<String*>(req->_tempObject);
-      if (body && cfg_->fromJson(*body)) {
+      if (!body) {  // oversize/aborted body was dropped by the upload handler
+        req->send(413, "application/json", "{\"ok\":false,\"error\":\"too_large\"}");
+        return;
+      }
+      if (cfg_->fromJson(*body)) {
         cfg_->save();
         req->send(200, "application/json", "{\"ok\":true}");
       } else {
         req->send(400, "application/json", "{\"ok\":false,\"error\":\"parse\"}");
       }
-      if (body) { delete body; req->_tempObject = nullptr; }
+      delete body; req->_tempObject = nullptr;
     },
     nullptr,
     [](AsyncWebServerRequest* req, uint8_t* data, size_t len,
        size_t index, size_t total) {
+      static const size_t kMaxBody = 8192;   // settings JSON is well under this
       if (index == 0) {
-        if (req->_tempObject) delete reinterpret_cast<String*>(req->_tempObject);
-        req->_tempObject = new String();
-        reinterpret_cast<String*>(req->_tempObject)->reserve(total > 0 ? total : 512);
+        if (req->_tempObject) { delete reinterpret_cast<String*>(req->_tempObject);
+                                req->_tempObject = nullptr; }
+        if (total > kMaxBody) return;        // reject up front; body stays null
+        String* b = new String();
+        b->reserve(total > 0 ? total : 512);
+        req->_tempObject = b;
       }
-      if (req->_tempObject)
-        reinterpret_cast<String*>(req->_tempObject)->concat(
-            reinterpret_cast<const char*>(data), len);
+      String* b = reinterpret_cast<String*>(req->_tempObject);
+      if (!b) return;                        // already rejected
+      if (b->length() + len > kMaxBody) {    // chunked without Content-Length
+        delete b; req->_tempObject = nullptr;
+        return;
+      }
+      b->concat(reinterpret_cast<const char*>(data), len);
     }
   );
 
   // GET /api/status → live info
   server->on("/api/status", HTTP_GET, [this](AsyncWebServerRequest* req) {
-    String ip   = WiFi.localIP().toString();
-    String ssid = WiFi.SSID();
+    String ip   = jsonEscape(WiFi.localIP().toString());
+    String ssid = jsonEscape(WiFi.SSID());
     unsigned long up = millis() / 1000UL;
     const int batt = battPct_ ? battPct_() : -1;
     String json = "{\"ip\":\"" + ip + "\","

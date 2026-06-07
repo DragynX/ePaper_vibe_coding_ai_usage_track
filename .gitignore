@@ -6,6 +6,8 @@
 
 # Secrets -- never commit real keys
 src/secrets.h
+secrets.h
+/secrets.h
 .env
 
 # Build artifacts
