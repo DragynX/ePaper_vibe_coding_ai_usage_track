@@ -65,7 +65,7 @@ R"rawhtml(
   <details><summary>Claude OAuth</summary><div class="inner">
     <label>Access Token<textarea class="secret" id="cl_at" rows="2" spellcheck="false"></textarea></label>
     <label>Refresh Token<textarea class="secret" id="cl_rt" rows="2" spellcheck="false"></textarea></label>
-    <label>Expires At (ms epoch)<input type="text" id="cl_exp" placeholder="e.g. 1234567890000"></label>
+    <label>Expires At<input type="datetime-local" id="cl_exp"></label>
     <label>Subscription<select id="cl_sub">
       <option value="free">Free</option>
       <option value="pro">Pro</option>
@@ -81,7 +81,7 @@ R"rawhtml(
     <label>Access Token<textarea class="secret" id="cx_at" rows="2" spellcheck="false"></textarea></label>
     <label>Refresh Token<textarea class="secret" id="cx_rt" rows="2" spellcheck="false"></textarea></label>
     <label>Account ID<input type="text" id="cx_aid"></label>
-    <label>Last Refresh (ISO8601 or 0)<input type="text" id="cx_lr" placeholder="0"></label>
+    <label>Last Refresh<input type="datetime-local" id="cx_lr"></label>
   </div></details>
   <details><summary>GitHub Copilot PAT</summary><div class="inner">
     <label>Personal Access Token<textarea class="secret" id="co_pat" rows="2" spellcheck="false"></textarea></label>
@@ -198,10 +198,16 @@ function updRef(v){
 function onTzSel(v){
   document.getElementById('tz_custom').style.display=v==='custom'?'block':'none';
 }
-const STR_IDS=['cl_at','cl_rt','cl_exp','cl_sub',
-               'cx_at','cx_rt','cx_aid','cx_lr',
+const STR_IDS=['cl_at','cl_rt','cl_sub',
+               'cx_at','cx_rt','cx_aid',
                'co_pat','mm_key','ki_tok',
                'za_key','za_ep','cp_key','cp_org','ls_url'];
+// datetime-local <-> wire format (cl_exp: ms epoch string, cx_lr: ISO8601)
+function msToLocal(ms){const n=parseInt(ms);if(!n)return'';
+  const d=new Date(n);return new Date(n-d.getTimezoneOffset()*60000).toISOString().slice(0,16);}
+function localToMs(v){return v?String(new Date(v).getTime()):'0';}
+function isoToLocal(s){const t=Date.parse(s);return isNaN(t)?'':msToLocal(t);}
+function localToIso(v){return v?new Date(v).toISOString():'0';}
 function populate(c){
   STR_IDS.forEach(id=>{
     const el=document.getElementById(id);
@@ -212,6 +218,8 @@ function populate(c){
     const v=String(c.cl_sub??'pro').toLowerCase();
     sub.value=['free','pro','max'].includes(v)?v:'pro';
   }
+  const ce=document.getElementById('cl_exp');if(ce)ce.value=msToLocal(c.cl_exp);
+  const cx=document.getElementById('cx_lr');if(cx)cx.value=isoToLocal(c.cx_lr??'');
   const mm=document.getElementById('mm_reg');if(mm)mm.value=String(c.mm_reg??0);
   const rs=document.getElementById('ref_sec');if(rs){rs.value=c.ref_sec??300;updRef(rs.value);}
   const ds=document.getElementById('deep_sleep');if(ds)ds.checked=!!c.deep_sleep;
@@ -227,6 +235,8 @@ function populate(c){
 function collect(){
   const d={};
   STR_IDS.forEach(id=>{d[id]=document.getElementById(id)?.value??'';});
+  d.cl_exp=localToMs(document.getElementById('cl_exp')?.value);
+  d.cx_lr=localToIso(document.getElementById('cx_lr')?.value);
   d.mm_reg=parseInt(document.getElementById('mm_reg')?.value??'0');
   d.ref_sec=parseInt(document.getElementById('ref_sec').value);
   d.deep_sleep=document.getElementById('deep_sleep').checked;
@@ -236,7 +246,12 @@ function collect(){
   d.tz=tzSel&&tzSel.value==='custom'?(document.getElementById('tz_custom')?.value??'UTC0'):(tzSel?.value??'UTC0');
   return d;
 }
-function setMsg(t,c){const m=document.getElementById('msg');m.textContent=t;m.style.color=c;}
+let msgTimer=null;
+function setMsg(t,c){
+  const m=document.getElementById('msg');m.textContent=t;m.style.color=c;
+  if(msgTimer)clearTimeout(msgTimer);
+  if(t)msgTimer=setTimeout(()=>{m.textContent='';},15000);
+}
 async function doSave(){
   setMsg('Saving…','#888');
   try{

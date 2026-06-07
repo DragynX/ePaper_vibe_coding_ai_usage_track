@@ -557,6 +557,16 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
     renderer_.drawText(name, x, y, 4, TextAlign::TopLeft, kText, kBg);
   } else {
     renderer_.drawTextFace(name, x, y, TextFace::SansBold12, TextAlign::TopLeft, kText, kBg);
+    if (p.lastSuccessEpoch > 0) {
+      time_t t = static_cast<time_t>(p.lastSuccessEpoch);
+      struct tm lt;
+      localtime_r(&t, &lt);
+      char upd[28];
+      snprintf(upd, sizeof(upd), "- last update %02d:%02d", lt.tm_hour, lt.tm_min);
+      const int nameW = renderer_.measureTextFace(name, TextFace::SansBold12);
+      renderer_.drawTextFace(upd, x + nameW + 8, y + 6, TextFace::Sans9,
+                             TextAlign::TopLeft, kMuted, kBg);
+    }
   }
 
   int rightY = y + 4;
