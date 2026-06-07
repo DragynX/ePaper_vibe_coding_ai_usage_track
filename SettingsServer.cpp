@@ -164,10 +164,6 @@ R"rawhtml(
     <input type="range" id="ref_sec" min="300" max="3600" step="60" oninput="updRef(this.value)" style="width:100%;margin-top:4px">
   </label>
   <label class="chkrow" style="margin-top:14px">
-    <input type="checkbox" id="deep_sleep">
-    <span>Enable Deep Sleep between fetches</span>
-  </label>
-  <label class="chkrow" style="margin-top:10px">
     <input type="checkbox" id="dark">
     <span>Dark mode (screen)</span>
   </label>
@@ -175,7 +171,11 @@ R"rawhtml(
     <input type="checkbox" id="secure">
     <span>Secure Tokens (hide saved tokens; reveal only what you type this session)</span>
   </label>
-  <p class="note" style="margin-top:4px">When on: settings page is only available for 5 min after power-on/reset. Device sleeps between fetches.</p>
+  <label class="chkrow" style="margin-top:10px">
+    <input type="checkbox" id="deep_sleep">
+    <span>Enable Deep Sleep between fetches</span>
+  </label>
+  <p class="note" style="margin-top:4px">Deep Sleep: settings page is only available for 5 min after power-on/reset. Device sleeps between fetches.</p>
   <div class="row" style="margin-top:20px">
     <button class="btn info" onclick="doRestart()">Restart Device</button>
     <button class="btn danger" onclick="doWifiReset()">Reset WiFi</button>
