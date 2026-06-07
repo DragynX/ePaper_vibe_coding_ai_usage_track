@@ -109,24 +109,24 @@ R"rawhtml(
     <select id="left_prov">
       <option value="0">&#8212; None &#8212;</option>
       <option value="1">Claude OAuth</option>
+      <option value="7">Claude Platform</option>
       <option value="2">Codex</option>
       <option value="3">Copilot</option>
-      <option value="4">MiniMax</option>
       <option value="5">Kimi</option>
+      <option value="4">MiniMax</option>
       <option value="6">Zai</option>
-      <option value="7">Claude Platform</option>
     </select>
   </label>
   <label style="margin-top:14px">RIGHT Column Provider
     <select id="right_prov">
       <option value="0">&#8212; None &#8212;</option>
       <option value="1">Claude OAuth</option>
+      <option value="7">Claude Platform</option>
       <option value="2">Codex</option>
       <option value="3">Copilot</option>
-      <option value="4">MiniMax</option>
       <option value="5">Kimi</option>
+      <option value="4">MiniMax</option>
       <option value="6">Zai</option>
-      <option value="7">Claude Platform</option>
     </select>
   </label>
 </div>
