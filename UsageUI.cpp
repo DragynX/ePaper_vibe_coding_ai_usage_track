@@ -356,11 +356,9 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
   display_.drawRect(x, y, w, h, kLine);
   const int pad = kIsLarge ? 12 : 10;
 
-  // Top row: window label (left) + "left" (right).
+  // Top row: window label (left).
   renderer_.drawTextFace(label, x + pad, y + pad, TextFace::SansBold9,
                          TextAlign::TopLeft, kText, kCard);
-  renderer_.drawTextFace(uiStr(UiStringId::kRemaining), x + w - pad, y + pad,
-                         TextFace::Sans9, TextAlign::TopRight, kText, kCard);
 
   if (!win.present) {
     renderer_.drawTextFace("--", x + pad, y + h / 2 - 10,
@@ -369,27 +367,31 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
     return;
   }
 
-  // Big remaining percentage (FreeFonts on all panel types).
+  // Big used percentage (FreeFonts on all panel types).
   char pctBuf[8];
   snprintf(pctBuf, sizeof(pctBuf), "%d%%",
-           static_cast<int>(win.remainingPercent() + 0.5));
+           static_cast<int>(win.usedPercent + 0.5));
   const int bigY = y + pad + 18;
   renderer_.drawTextFace(pctBuf, x + pad, bigY,
                          emphasize ? TextFace::SansBold24 : TextFace::SansBold18,
                          TextAlign::TopLeft, kText, kCard);
 
-  // Used% bar near the bottom.
-  const int barH = kIsLarge ? 8 : 10;
-  const int barY = y + h - pad - barH - (kIsLarge ? 20 : 18);
+  // Used% bar near the bottom; it thickens as usage grows (every full 10%
+  // used adds 5% of the base height), anchored at a fixed bottom edge.
+  const int baseH = kIsLarge ? 8 : 10;
+  const int steps = static_cast<int>(win.usedPercent / 10.0);
+  const int barH  = baseH + (baseH * 5 * steps) / 100;
+  const int slotBottom = y + h - pad - (kIsLarge ? 20 : 18);
+  const int barY = slotBottom - barH;
   drawProgressBar(x + pad, barY, w - pad * 2, barH, win.usedPercent,
                   statusColor(win.status), kTrack);
 
-  // Bottom row: used% (left) + reset countdown (right).
-  char usedBuf[24];
-  snprintf(usedBuf, sizeof(usedBuf), "%s %d%%", uiStr(UiStringId::kUsed),
-           static_cast<int>(win.usedPercent + 0.5));
+  // Bottom row: remaining% (left) + reset countdown (right).
+  char remBuf[24];
+  snprintf(remBuf, sizeof(remBuf), "%s %d%%", uiStr(UiStringId::kRemaining),
+           static_cast<int>(win.remainingPercent() + 0.5));
   const int bottomRowY = y + h - pad - (kIsLarge ? 12 : 14);
-  renderer_.drawTextFace(usedBuf, x + pad, bottomRowY, TextFace::Sans9,
+  renderer_.drawTextFace(remBuf, x + pad, bottomRowY, TextFace::Sans9,
                          TextAlign::TopLeft, kText, kCard);
 
   if (win.resetEpoch > 0 && nowEpoch > 0) {
@@ -397,7 +399,7 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
     umFormatCountdown(win.resetEpoch - nowEpoch, cd, sizeof(cd));
     char resetBuf[32];
     snprintf(resetBuf, sizeof(resetBuf), "%s %s", uiStr(UiStringId::kResets), cd);
-    renderer_.drawTextFace(resetBuf, x + w - pad, bottomRowY, TextFace::Sans9,
+    renderer_.drawTextFace(resetBuf, x + w - pad, bottomRowY, TextFace::SansBold9,
                            TextAlign::TopRight, kText, kCard);
   }
 }

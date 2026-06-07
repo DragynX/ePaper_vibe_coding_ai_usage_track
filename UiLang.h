@@ -72,7 +72,7 @@ inline const char* uiStrEn(UiStringId id) {
     case UiStringId::kWinWeekly:    return "Weekly";
     case UiStringId::kWinSonnet:    return "Sonnet 7d";
     case UiStringId::kWinOpus:      return "Opus 7d";
-    case UiStringId::kRemaining:    return "left";
+    case UiStringId::kRemaining:    return "Remaining";
     case UiStringId::kUsed:         return "used";
     case UiStringId::kResets:       return "resets";
     case UiStringId::kPlan:         return "Plan";
