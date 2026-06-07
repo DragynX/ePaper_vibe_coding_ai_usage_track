@@ -22,6 +22,7 @@ void ConfigStore::load() {
   deepSleep_  = p.getBool("deep_sleep", false);
   dark_       = p.getBool("dark", false);
   secure_     = p.getBool("secure", false);
+  battFull_   = (uint16_t)p.getUShort("batt_full", 4200);
   cl_at_  = p.getString("cl_at",  "");
   cl_rt_  = p.getString("cl_rt",  "");
   cl_exp_ = p.getString("cl_exp", "0");
@@ -55,6 +56,7 @@ void ConfigStore::save() {
   p.putBool("deep_sleep",  deepSleep_);
   p.putBool("dark",        dark_);
   p.putBool("secure",      secure_);
+  p.putUShort("batt_full", battFull_);
   p.putString("cl_at",     cl_at_);
   p.putString("cl_rt",     cl_rt_);
   p.putString("cl_exp",    cl_exp_);
@@ -87,6 +89,7 @@ String ConfigStore::toJson() const {
   doc["deep_sleep"] = deepSleep_;
   doc["dark"]       = dark_;
   doc["secure"]     = secure_;
+  doc["batt_full"]  = battFull_;
   // Secret fields: when Secure Tokens is ON they are NOT echoed (only a
   // <key>_set flag) so they never cross the LAN; when OFF the real value is
   // returned so the box can reveal it on click. _set flags are always emitted.
@@ -139,6 +142,7 @@ bool ConfigStore::fromJson(const String& json) {
   deepSleep_ = doc["deep_sleep"] | deepSleep_;
   dark_      = doc["dark"] | dark_;
   secure_    = doc["secure"] | secure_;
+  battFull_  = doc["batt_full"] | battFull_;
   setSecret("cl_at", cl_at_, UM_PROV_CLAUDE);
   setSecret("cl_rt", cl_rt_, UM_PROV_CLAUDE);
   if (!doc["cl_exp"].isNull()) cl_exp_ = doc["cl_exp"].as<String>();

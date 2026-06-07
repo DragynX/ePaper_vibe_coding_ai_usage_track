@@ -23,6 +23,8 @@ struct UiStatus {
   int    batteryPercent = -1;
   bool   refreshing     = false;
   String ipAddress;
+  long   lastFetchEpoch = 0;   // when the last refresh completed (local epoch)
+  long   nextFetchEpoch = 0;   // lastFetch + refresh interval
 };
 
 class UsageUI {

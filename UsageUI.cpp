@@ -309,27 +309,22 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
                            TextFace::SansBold9, TextAlign::TopLeft, kText, kBg);
   }
 
-  // Center: wall clock + date from the NTP-synced system time (local TZ).
-  char clockBuf[16] = "--:--";
-  char dateBuf[24] = "";
-  if (nowEpoch > 0) {
-    time_t t = static_cast<time_t>(nowEpoch);
-    struct tm lt;
-    localtime_r(&t, &lt);
-    snprintf(clockBuf, sizeof(clockBuf), "%02d:%02d", lt.tm_hour, lt.tm_min);
-    snprintf(dateBuf, sizeof(dateBuf), "%04d/%02d/%02d",
-             lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday);
-  }
-  const int clockSize = kIsLarge ? 3 : 3;
+  // Center: Last Fetch / Next Fetch times (local TZ) instead of a wall clock.
+  auto hhmm = [](long epoch, char* out) {
+    if (epoch <= 0) { strcpy(out, "--:--"); return; }
+    time_t t = static_cast<time_t>(epoch);
+    struct tm lt; localtime_r(&t, &lt);
+    snprintf(out, 8, "%02d:%02d", lt.tm_hour, lt.tm_min);
+  };
+  char lastBuf[8], nextBuf[8], fetchBuf[48];
+  hhmm(st.lastFetchEpoch, lastBuf);
+  hhmm(st.nextFetchEpoch, nextBuf);
+  snprintf(fetchBuf, sizeof(fetchBuf), "Last Fetch %s   Next Fetch %s", lastBuf, nextBuf);
   if (kIsLarge) {
-    renderer_.drawTextFace(clockBuf, w / 2, topY - 2, TextFace::SansBold24,
+    renderer_.drawTextFace(fetchBuf, w / 2, topY + 8, TextFace::SansBold18,
                            TextAlign::TopCenter, kText, kBg);
   } else {
-    renderer_.drawTextFace(clockBuf, w / 2, topY, TextFace::SansBold12,
-                           TextAlign::TopCenter, kText, kBg);
-  }
-  if (kIsLarge) {
-    renderer_.drawTextFace(dateBuf, w / 2, topY + 56, TextFace::SansBold12,
+    renderer_.drawTextFace(fetchBuf, w / 2, topY, TextFace::SansBold9,
                            TextAlign::TopCenter, kText, kBg);
   }
 
@@ -358,7 +353,7 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     if (st.batteryPercent >= 0) {
       const int battW = 26, battH = 13;
       const int battX = leftEdge - battW - 10;
-      drawBatteryIcon(battX, topY + (wifiH - battH) / 2, battW, battH,
+      drawBatteryIcon(battX, topY + (wifiH - battH) / 2 + 4, battW, battH,
                       st.batteryPercent, kText);
       leftEdge = battX - 3;   // 3px nub drawn past battW
     }

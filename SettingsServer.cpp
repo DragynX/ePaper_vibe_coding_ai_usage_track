@@ -48,6 +48,11 @@ summary{padding:8px 10px;cursor:pointer;font-weight:600;font-size:13px;user-sele
 .secret{font-family:monospace;font-size:11px;height:44px;-webkit-text-security:disc}
 .secret:focus{-webkit-text-security:none}
 .clrbtn{display:none;float:right;font-size:11px;padding:2px 8px;margin-left:8px;border:none;border-radius:3px;background:#c33;color:#fff;cursor:pointer;font-family:inherit}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99;align-items:center;justify-content:center}
+.modal.on{display:flex}
+.modal .box{background:#fff;border-radius:8px;padding:20px;max-width:300px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.4)}
+.modal .box p{margin-bottom:14px;font-size:14px;color:#333}
+.modal .box .row{justify-content:center}
 </style>
 </head>
 <body>
@@ -166,6 +171,7 @@ R"rawhtml(
   <label style="margin-top:12px">Refresh Interval: <strong id="ref_lbl">5 min</strong>
     <input type="range" id="ref_sec" min="300" max="3600" step="60" oninput="updRef(this.value)" style="width:100%;margin-top:4px">
   </label>
+  <label style="margin-top:12px">Battery full (mV)<input type="number" id="batt_full" min="3500" max="5000" step="10" placeholder="4200"></label>
   <label class="chkrow" style="margin-top:14px">
     <input type="checkbox" id="dark">
     <span>Dark mode (screen)</span>
@@ -193,6 +199,14 @@ R"rawhtml(
   <button class="btn save" onclick="doSave()">Save Settings</button>
   <span id="msg"></span>
 </div>
+
+<div id="sleepModal" class="modal"><div class="box">
+  <p>Device will sleep in <strong id="sleepCd">30</strong>s.</p>
+  <div class="row">
+    <button class="btn save" onclick="keepAlive()">Continue Session</button>
+    <button class="btn danger" onclick="sleepNow()">Sleep</button>
+  </div>
+</div></div>
 
 <script>
 const NPANE=4;
@@ -240,6 +254,7 @@ function populate(c){
   const cx=document.getElementById('cx_lr');if(cx)cx.value=isoToLocal(c.cx_lr??'');
   const mm=document.getElementById('mm_reg');if(mm)mm.value=String(c.mm_reg??0);
   const rs=document.getElementById('ref_sec');if(rs){rs.value=c.ref_sec??300;updRef(rs.value);}
+  const bf=document.getElementById('batt_full');if(bf)bf.value=c.batt_full??4200;
   const ds=document.getElementById('deep_sleep');if(ds)ds.checked=!!c.deep_sleep;
   const dk=document.getElementById('dark');if(dk)dk.checked=!!c.dark;
   const se=document.getElementById('secure');if(se)se.checked=!!c.secure;
@@ -264,6 +279,7 @@ function collect(){
   d.secure=document.getElementById('secure').checked;
   d.left_prov=parseInt(document.getElementById('left_prov').value);
   d.right_prov=parseInt(document.getElementById('right_prov').value);
+  d.batt_full=parseInt(document.getElementById('batt_full')?.value||'4200');
   const tzSel=document.getElementById('tz_sel');
   d.tz=tzSel&&tzSel.value==='custom'?(document.getElementById('tz_custom')?.value??'UTC0'):(tzSel?.value??'UTC0');
   return d;
@@ -357,6 +373,22 @@ async function clearProv(ev,id){
 function pollCredFor(ms){const end=Date.now()+ms;const t=setInterval(()=>{pollCred();if(Date.now()>end)clearInterval(t);},2000);}
 fetch('/api/settings').then(r=>r.json()).then(populate).catch(console.error);
 pollCred();
+
+// Sleep-warning modal: passively poll sleep_in (does NOT keep the device awake);
+// when <=30s show a countdown with Continue Session / Sleep.
+const sModal=document.getElementById('sleepModal');
+const sCd=document.getElementById('sleepCd');
+async function keepAlive(){try{await fetch('/api/keepalive',{method:'POST'});}catch(e){}sModal.classList.remove('on');}
+async function sleepNow(){try{await fetch('/api/sleepnow',{method:'POST'});}catch(e){}sModal.classList.remove('on');setMsg('Sleeping…','#888');}
+async function pollSleep(){
+  try{
+    const d=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());
+    const s=d.sleep_in;
+    if(s!=null && s>=0 && s<=30){sCd.textContent=s;sModal.classList.add('on');}
+    else sModal.classList.remove('on');
+  }catch(e){}
+}
+setInterval(pollSleep,5000);pollSleep();
 </script>
 </body>
 </html>
@@ -385,11 +417,17 @@ static String jsonEscape(const String& in) {
 
 void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battPct)(),
                            std::function<void()> onSaved,
-                           std::function<String()> credJson) {
+                           std::function<String()> credJson,
+                           std::function<void()> onKeepAlive,
+                           std::function<void()> onSleepNow,
+                           std::function<int()> sleepInSec) {
   cfg_ = cfg;
   battPct_ = battPct;
   onSaved_ = onSaved;
   credJson_ = credJson;
+  onKeepAlive_ = onKeepAlive;
+  onSleepNow_ = onSleepNow;
+  sleepInSec_ = sleepInSec;
 
   // GET / → settings page
   server->on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
@@ -445,6 +483,18 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
     req->send(200, "application/json", credJson_ ? credJson_() : "{}");
   });
 
+  // POST /api/keepalive → user chose Continue Session: keep awake 2 minutes
+  server->on("/api/keepalive", HTTP_POST, [this](AsyncWebServerRequest* req) {
+    if (onKeepAlive_) onKeepAlive_();
+    req->send(200, "application/json", "{\"ok\":true}");
+  });
+
+  // POST /api/sleepnow → user chose Sleep: enter deep sleep now
+  server->on("/api/sleepnow", HTTP_POST, [this](AsyncWebServerRequest* req) {
+    if (onSleepNow_) onSleepNow_();
+    req->send(200, "application/json", "{\"ok\":true}");
+  });
+
   // POST /api/clearprovider?prov=N → wipe that provider's credentials
   server->on("/api/clearprovider", HTTP_POST, [this](AsyncWebServerRequest* req) {
     int prov = 0;
@@ -465,9 +515,11 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
     String ssid = jsonEscape(WiFi.SSID());
     unsigned long up = millis() / 1000UL;
     const int batt = battPct_ ? battPct_() : -1;
+    const int sleepIn = sleepInSec_ ? sleepInSec_() : -1;  // passive: does NOT extend
     String json = "{\"ip\":\"" + ip + "\","
                   "\"ssid\":\"" + ssid + "\","
                   "\"batt\":" + String(batt) + ","
+                  "\"sleep_in\":" + String(sleepIn) + ","
                   "\"uptime_sec\":" + String(up) + ","
                   "\"left_prov\":"  + String(cfg_->leftProvider()) + ","
                   "\"right_prov\":" + String(cfg_->rightProvider()) + "}";

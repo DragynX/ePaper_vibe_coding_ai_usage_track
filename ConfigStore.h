@@ -16,6 +16,7 @@ class ConfigStore {
   bool deepSleepEnabled() const { return deepSleep_; }
   bool darkMode() const         { return dark_; }
   bool secureTokens() const     { return secure_; }
+  uint16_t battFullMv() const   { return battFull_; }
 
   // Bitmask of providers whose secret changed in the last fromJson() (bit n =
   // provider id n). Consumed by the token-test pass, then cleared.
@@ -49,6 +50,7 @@ class ConfigStore {
   void setDeepSleep(bool v)              { deepSleep_ = v; }
   void setDarkMode(bool v)               { dark_ = v; }
   void setSecureTokens(bool v)           { secure_ = v; }
+  void setBattFullMv(uint16_t v)         { battFull_ = v; }
   void setClaudeAt(const String& v)      { cl_at_ = v; }
   void setClaudeRt(const String& v)      { cl_rt_ = v; }
   void setClaudeExp(const String& v)     { cl_exp_ = v; }
@@ -83,6 +85,7 @@ class ConfigStore {
   bool    deepSleep_   = false;
   bool    dark_        = false;
   bool    secure_      = false;
+  uint16_t battFull_   = 4200;
   uint8_t pendingTestMask_ = 0;
 
   String cl_at_, cl_rt_, cl_exp_, cl_sub_;

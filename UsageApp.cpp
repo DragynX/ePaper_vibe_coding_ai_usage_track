@@ -57,6 +57,10 @@ class TeeStream : public Stream {
 };
 static TeeStream logTee;
 
+// Set from ConfigStore so the static battery reader (a function pointer) can use
+// the user-configured 100% level.
+static uint16_t g_battFullMv = 4200;
+
 // Battery: GPIO1 ADC behind a divider (halves the voltage), gated by GPIO21
 // (must be HIGH to read — Seeed reTerminal E series wiki).
 static int readBatteryPercent() {
@@ -66,7 +70,7 @@ static int readBatteryPercent() {
   uint32_t mv = 0;
   for (int i = 0; i < 16; ++i) mv += analogReadMilliVolts(1);
   digitalWrite(21, LOW);
-  return umBatteryPercent(static_cast<int>(mv / 16));
+  return umBatteryPercent(static_cast<int>(mv / 16), g_battFullMv);
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +363,7 @@ void UsageApp::begin() {
   // sleep, in UTC) renders as local time right away — before NTP re-applies it.
   setenv("TZ", cfgStore_.tz().c_str(), 1);
   tzset();
+  g_battFullMv = cfgStore_.battFullMv();
   http_.configure(45000);
   configureProviders();
   localStats_.configure(&http_, cfgStore_.localStatsUrl().c_str());
@@ -394,7 +399,10 @@ void UsageApp::begin() {
   MDNS.begin("usagemonitor");
   settings_.begin(&server_, &cfgStore_, &readBatteryPercent,
                   [this]() { redrawPending_ = true; },
-                  [this]() { return credStatusJson(); });
+                  [this]() { return credStatusJson(); },
+                  [this]() { extendAwake(); },        // Continue Session / user action
+                  [this]() { sleepNow_ = true; },     // Sleep now
+                  [this]() { return sleepInSec(); }); // seconds until sleep
   server_.begin();
   sysLog("[settings] http://usagemonitor.local or http://%s",
          WiFi.localIP().toString().c_str());
@@ -432,7 +440,8 @@ void UsageApp::loop() {
     } else {
       ui_.drawDashboard(snapshot_, currentStatus(), now());
     }
-    awakeStartMs_ = millis();   // a settings save extends the awake window
+    g_battFullMv = cfgStore_.battFullMv();   // pick up a changed battery setting
+    extendAwake();              // a settings save is a user action -> keep awake 2 min
   }
 
   // Periodic refresh while awake.
@@ -441,13 +450,28 @@ void UsageApp::loop() {
     if (ensureWiFi(10000)) refreshAll();
   }
 
-  // Deep sleep (when enabled): after the awake window elapses, tear down and
-  // sleep until the timer or the green button wakes us.
-  if (cfgStore_.deepSleepEnabled() && ms - awakeStartMs_ >= awakeWindowMs_) {
+  // Deep sleep (when enabled): on an explicit web "Sleep", or after the awake
+  // window elapses, tear down and sleep until the timer or green button wakes us.
+  if (cfgStore_.deepSleepEnabled() &&
+      (sleepNow_ || ms - awakeStartMs_ >= awakeWindowMs_)) {
     enterDeepSleep();   // does not return
   }
 
   delay(50);
+}
+
+// A user web action keeps the device awake for at least 2 minutes.
+void UsageApp::extendAwake() {
+  awakeStartMs_  = millis();
+  if (awakeWindowMs_ < 120000UL) awakeWindowMs_ = 120000UL;
+}
+
+// Seconds until deep sleep, or -1 when deep sleep is disabled.
+int UsageApp::sleepInSec() {
+  if (!cfgStore_.deepSleepEnabled()) return -1;
+  const long elapsed = (long)(millis() - awakeStartMs_);
+  const long remain  = (long)awakeWindowMs_ - elapsed;
+  return remain > 0 ? (int)(remain / 1000) : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -528,6 +552,9 @@ UiStatus UsageApp::currentStatus() {
   s.wifiConnected  = (WiFi.status() == WL_CONNECTED);
   s.batteryPercent = readBatteryPercent();
   if (s.wifiConnected) s.ipAddress = WiFi.localIP().toString();
+  s.lastFetchEpoch = lastFetchEpoch_;
+  s.nextFetchEpoch = lastFetchEpoch_ > 0
+      ? lastFetchEpoch_ + (long)cfgStore_.refreshSec() : 0;
   return s;
 }
 
@@ -681,6 +708,7 @@ void UsageApp::refreshAll() {
   fetchLocalStats();
   setProviderNames();
   printSnapshot();
+  lastFetchEpoch_ = now();   // for the Last/Next Fetch header
   ui_.drawDashboard(snapshot_, currentStatus(), now());
   sysLog("[ui] dashboard drawn");
 }
