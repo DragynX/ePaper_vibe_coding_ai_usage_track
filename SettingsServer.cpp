@@ -62,7 +62,7 @@ R"rawhtml(
 </div>
 
 <div id="p0" class="pane on">
-  <details><summary>Claude OAuth</summary><div class="inner">
+  <details><summary id="s_claude">Claude OAuth</summary><div class="inner">
     <label>Access Token<textarea class="secret" id="cl_at" rows="2" spellcheck="false"></textarea></label>
     <label>Refresh Token<textarea class="secret" id="cl_rt" rows="2" spellcheck="false"></textarea></label>
     <label>Expires At<input type="datetime-local" id="cl_exp"></label>
@@ -72,30 +72,30 @@ R"rawhtml(
       <option value="max">Max</option>
     </select></label>
   </div></details>
-  <details><summary>Claude Platform (Admin Key)</summary><div class="inner">
+  <details><summary id="s_claudeplat">Claude Platform (Admin Key)</summary><div class="inner">
     <label>Admin API Key<textarea class="secret" id="cp_key" rows="2" spellcheck="false"></textarea></label>
     <label>Org ID (optional)<input type="text" id="cp_org" spellcheck="false"></label>
     <p class="note">From console.anthropic.com &#8594; API Keys &#8594; Admin Key. Shows 7-day token totals.</p>
   </div></details>
-  <details><summary>Codex OAuth</summary><div class="inner">
+  <details><summary id="s_codex">Codex OAuth</summary><div class="inner">
     <label>Access Token<textarea class="secret" id="cx_at" rows="2" spellcheck="false"></textarea></label>
     <label>Refresh Token<textarea class="secret" id="cx_rt" rows="2" spellcheck="false"></textarea></label>
     <label>Account ID<input type="text" id="cx_aid"></label>
     <label>Last Refresh<input type="datetime-local" id="cx_lr"></label>
   </div></details>
-  <details><summary>GitHub Copilot PAT</summary><div class="inner">
+  <details><summary id="s_copilot">GitHub Copilot PAT</summary><div class="inner">
     <label>Personal Access Token<textarea class="secret" id="co_pat" rows="2" spellcheck="false"></textarea></label>
     <p class="note">github.com/settings/tokens &#8594; Classic &#8594; needs "copilot" scope</p>
   </div></details>
-  <details><summary>MiniMax</summary><div class="inner">
+  <details><summary id="s_minimax">MiniMax</summary><div class="inner">
     <label>API Key<textarea class="secret" id="mm_key" rows="2" spellcheck="false"></textarea></label>
     <label>Region<select id="mm_reg"><option value="0">International (api.minimax.io)</option><option value="1">China (api.minimaxi.com)</option></select></label>
   </div></details>
-  <details><summary>Kimi</summary><div class="inner">
+  <details><summary id="s_kimi">Kimi</summary><div class="inner">
     <label>Auth Token (browser cookie kimi-auth)<textarea class="secret" id="ki_tok" rows="2" spellcheck="false"></textarea></label>
     <p class="note">Extract from www.kimi.com DevTools. No refresh &#8212; re-enter when expired.</p>
   </div></details>
-  <details><summary>Zai / Zhipu</summary><div class="inner">
+  <details><summary id="s_zai">Zai / Zhipu</summary><div class="inner">
     <label>API Key<textarea class="secret" id="za_key" rows="2" spellcheck="false"></textarea></label>
     <label>Endpoint<input type="text" id="za_ep" placeholder="https://api.z.ai"></label>
   </div></details>
@@ -326,10 +326,14 @@ async function loadSt(){
 const PROV_FIELDS={claude:['cl_at','cl_rt'],codex:['cx_at','cx_rt'],copilot:['co_pat'],
   minimax:['mm_key'],kimi:['ki_tok'],zai:['za_key'],claudeplat:['cp_key']};
 const CRED_BG={ok:'#d6f5d6',fail:'#f8d2d2',none:'',testing:''};
+const HDR_BG={ok:'#8fdcb4',fail:'#f2aac0',none:'',testing:''};
+const SUMMARY={claude:'s_claude',claudeplat:'s_claudeplat',codex:'s_codex',
+  copilot:'s_copilot',minimax:'s_minimax',kimi:'s_kimi',zai:'s_zai'};
 function applyCred(st){
   for(const p in PROV_FIELDS){
-    const bg=CRED_BG[st[p]??'none']??'';
-    PROV_FIELDS[p].forEach(id=>{const el=document.getElementById(id);if(el)el.style.background=bg;});
+    const k=st[p]??'none';
+    PROV_FIELDS[p].forEach(id=>{const el=document.getElementById(id);if(el)el.style.background=CRED_BG[k]??'';});
+    const sm=document.getElementById(SUMMARY[p]);if(sm)sm.style.background=HDR_BG[k]??'';
   }
 }
 async function pollCred(){try{applyCred(await fetch('/api/credstatus',{cache:'no-store'}).then(r=>r.json()));}catch(e){}}
