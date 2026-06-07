@@ -323,13 +323,19 @@ void UsageApp::loop() {
   const unsigned long ms = millis();
   const unsigned long refreshMs = (unsigned long)cfgStore_.refreshSec() * 1000UL;
 
-  // A settings save requested a repaint (e.g. dark-mode toggle). Apply the
-  // palette and redraw the current snapshot here, on the main task (SPI-safe).
+  // A settings save requested a repaint (dark-mode toggle, new credentials,
+  // etc.). Re-arm any stopped providers, apply the palette, and refetch now —
+  // all on the main task (SPI / the e-paper are not safe from the async task).
   if (redrawPending_) {
     redrawPending_ = false;
+    leftFailCount_ = rightFailCount_ = 0;
+    leftDisabled_  = rightDisabled_  = false;
+    leftFailReason_[0] = rightFailReason_[0] = '\0';
     ui_.setDarkMode(cfgStore_.darkMode());
-    ui_.drawDashboard(snapshot_, currentStatus(), now());
-    sysLog("[ui] settings applied, repaint (dark=%d)", cfgStore_.darkMode() ? 1 : 0);
+    sysLog("[ui] settings applied (dark=%d), breakers reset",
+           cfgStore_.darkMode() ? 1 : 0);
+    if (ensureWiFi(10000)) refreshAll();   // refreshAll repaints with the new palette
+    else ui_.drawDashboard(snapshot_, currentStatus(), now());
   }
 
   if (!settingsAvailable_) {
@@ -443,7 +449,27 @@ void UsageApp::setProviderNames() {
 // Fetch
 // ---------------------------------------------------------------------------
 
+// Compose the on-screen stop reason from what the last fetch revealed.
+static void buildFailReason(char* buf, size_t n, bool relogin, int status,
+                            const String& err) {
+  if (relogin)           snprintf(buf, n, "Re-login required");
+  else if (err.length()) snprintf(buf, n, "%.*s", (int)n - 1, err.c_str());
+  else if (status > 0)   snprintf(buf, n, "HTTP %d", status);
+  else if (status < 0)   snprintf(buf, n, "Network error");
+  else                   snprintf(buf, n, "Check Provider Settings");
+}
+
 void UsageApp::fetchLeft(long n) {
+  if (leftDisabled_) {   // stopped after 2 consecutive failures
+    snapshot_.left = ProviderQuota();
+    snapshot_.left.disabled = true;
+    strncpy(snapshot_.left.failReason, leftFailReason_,
+            sizeof(snapshot_.left.failReason) - 1);
+    setProviderNames();
+    sysLog("[api] %s stopped — skipping (%s)",
+           providerName(cfgStore_.leftProvider()), leftFailReason_);
+    return;
+  }
   sysLog("[fetch] left %s", providerName(cfgStore_.leftProvider()));
   if (!leftClient_ || !isConfigured(cfgStore_.leftProvider(), cfgStore_)) {
     sysLog("[left] not configured — skipping");
@@ -452,6 +478,7 @@ void UsageApp::fetchLeft(long n) {
     return;
   }
   if (leftClient_->fetch(n, snapshot_.left)) {
+    leftFailCount_ = 0;
     sysLog("[api] %s OK session=%d%% weekly=%d%% (present s=%d w=%d)",
            providerName(cfgStore_.leftProvider()),
            (int)(snapshot_.left.session.usedPercent + 0.5),
@@ -469,14 +496,31 @@ void UsageApp::fetchLeft(long n) {
       sysLog("[fetch] left ok, token saved");
     }
   } else {
-    sysLog("[api] %s FAILED (relogin=%d)",
-           providerName(cfgStore_.leftProvider()),
-           snapshot_.left.needsRelogin ? 1 : 0);
+    buildFailReason(leftFailReason_, sizeof(leftFailReason_),
+                    snapshot_.left.needsRelogin, http_.lastStatus(), http_.lastError());
+    if (++leftFailCount_ >= 2) {
+      leftDisabled_ = true;
+      snapshot_.left.disabled = true;
+      strncpy(snapshot_.left.failReason, leftFailReason_,
+              sizeof(snapshot_.left.failReason) - 1);
+    }
+    sysLog("[api] %s FAILED (%u/2) reason=%s",
+           providerName(cfgStore_.leftProvider()), leftFailCount_, leftFailReason_);
   }
   setProviderNames();
 }
 
 void UsageApp::fetchRight(long n) {
+  if (rightDisabled_) {
+    snapshot_.right = ProviderQuota();
+    snapshot_.right.disabled = true;
+    strncpy(snapshot_.right.failReason, rightFailReason_,
+            sizeof(snapshot_.right.failReason) - 1);
+    setProviderNames();
+    sysLog("[api] %s stopped — skipping (%s)",
+           providerName(cfgStore_.rightProvider()), rightFailReason_);
+    return;
+  }
   sysLog("[fetch] right %s", providerName(cfgStore_.rightProvider()));
   if (!rightClient_ || !isConfigured(cfgStore_.rightProvider(), cfgStore_)) {
     sysLog("[right] not configured — skipping");
@@ -485,6 +529,7 @@ void UsageApp::fetchRight(long n) {
     return;
   }
   if (rightClient_->fetch(n, snapshot_.right)) {
+    rightFailCount_ = 0;
     sysLog("[api] %s OK session=%d%% weekly=%d%% (present s=%d w=%d)",
            providerName(cfgStore_.rightProvider()),
            (int)(snapshot_.right.session.usedPercent + 0.5),
@@ -502,9 +547,16 @@ void UsageApp::fetchRight(long n) {
       sysLog("[fetch] right ok, token saved");
     }
   } else {
-    sysLog("[api] %s FAILED (relogin=%d)",
-           providerName(cfgStore_.rightProvider()),
-           snapshot_.right.needsRelogin ? 1 : 0);
+    buildFailReason(rightFailReason_, sizeof(rightFailReason_),
+                    snapshot_.right.needsRelogin, http_.lastStatus(), http_.lastError());
+    if (++rightFailCount_ >= 2) {
+      rightDisabled_ = true;
+      snapshot_.right.disabled = true;
+      strncpy(snapshot_.right.failReason, rightFailReason_,
+              sizeof(snapshot_.right.failReason) - 1);
+    }
+    sysLog("[api] %s FAILED (%u/2) reason=%s",
+           providerName(cfgStore_.rightProvider()), rightFailCount_, rightFailReason_);
   }
   setProviderNames();
 }

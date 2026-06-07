@@ -74,6 +74,10 @@ class UsageUI {
   // Re-login notice filling a provider column (refresh token revoked).
   void drawReloginColumn(int x, int y, int w, int h, const char* name);
 
+  // Circuit-breaker notice: provider stopped after repeated fetch failures.
+  void drawNoticeColumn(int x, int y, int w, int h, const char* name,
+                        const char* reason);
+
   void drawBox(int x, int y, int w, int h, uint16_t fill);
   void drawStatusBadge(int x, int y, const String& text, bool alert);
   void drawInfoRow(int x, int y, int w, const char* label, const String& value,

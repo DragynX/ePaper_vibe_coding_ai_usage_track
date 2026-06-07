@@ -62,6 +62,13 @@ class UsageApp {
   bool          settingsAvailable_ = false;
   volatile bool redrawPending_     = false;  // set by settings save, handled in loop()
 
+  // Per-side circuit breaker: after 2 consecutive fetch failures a side is
+  // stopped (no more network calls) until the next settings save. Reason text
+  // is shown on screen.
+  uint8_t leftFailCount_  = 0, rightFailCount_ = 0;
+  bool    leftDisabled_   = false, rightDisabled_ = false;
+  char    leftFailReason_[48] = {0}, rightFailReason_[48] = {0};
+
   // Per-provider auth states
   AuthState claudeAuth_, codexAuth_, copilotAuth_,
             minimaxAuth_, kimiAuth_, zaiAuth_;

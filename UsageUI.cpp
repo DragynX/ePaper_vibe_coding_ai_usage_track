@@ -454,6 +454,21 @@ void UsageUI::drawReloginColumn(int x, int y, int w, int h, const char* name) {
   }
 }
 
+void UsageUI::drawNoticeColumn(int x, int y, int w, int h, const char* name,
+                              const char* reason) {
+  const char* msg = (reason && reason[0]) ? reason : "Check Provider Settings";
+  if (kIsLarge) {
+    renderer_.drawText(name, x, y, 4, TextAlign::TopLeft, kText, kBg);
+    renderer_.drawText("FETCH STOPPED", x, y + 70, 4, TextAlign::TopLeft, kCrit, kBg);
+    drawWrapped(msg, x, y + 130, w, 40, 3, kText, 4);
+  } else {
+    renderer_.drawTextFace(name, x, y, TextFace::SansBold12, TextAlign::TopLeft, kText, kBg);
+    renderer_.drawTextFace("FETCH STOPPED", x, y + 40, TextFace::SansBold12,
+                           TextAlign::TopLeft, kCrit, kBg);
+    drawWrappedFace(msg, x, y + 80, w, 20, TextFace::Sans9, kText, 4);
+  }
+}
+
 void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuota& p,
                                   long nowEpoch) {
   drawBox(x, y, w, h, kBg);
@@ -568,6 +583,10 @@ void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuot
 
 void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
                                  const ProviderQuota& p, long nowEpoch) {
+  if (p.disabled) {
+    drawNoticeColumn(x, y, w, h, name, p.failReason);
+    return;
+  }
   if (p.needsRelogin) {
     drawReloginColumn(x, y, w, h, name);
     return;

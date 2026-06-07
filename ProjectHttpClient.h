@@ -39,6 +39,12 @@ class HttpClient {
                   const String& body, const char* contentType,
                   const char* userAgent = nullptr);
 
+  // Result of the most recent send() — used by the caller to surface a failure
+  // reason. lastStatus < 0 = transport/network failure; lastError = parsed
+  // error "message" from the body (empty when none).
+  int           lastStatus() const { return lastStatus_; }
+  const String& lastError()  const { return lastError_; }
+
  private:
   HttpResult send(bool isPost, const String& url, const HttpHeader* req, size_t reqN,
                   const String& body, const char* contentType,
@@ -46,6 +52,8 @@ class HttpClient {
                   const char* userAgent);
 
   uint32_t timeoutMs_ = 45000;
+  int      lastStatus_ = 0;
+  String   lastError_;
 };
 
 }  // namespace usage_monitor

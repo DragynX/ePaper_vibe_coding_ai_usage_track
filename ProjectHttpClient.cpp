@@ -11,6 +11,28 @@ void HttpClient::configure(uint32_t timeoutMs) {
   timeoutMs_ = timeoutMs;
 }
 
+// Pull the value of a JSON "message" field out of an error body without a full
+// parse: find "message", skip to the value's opening quote, copy until the next
+// unescaped quote. Returns "" if absent. Good enough for provider error blobs
+// like {"error":{"type":"...","message":"invalid x-api-key"}}.
+static String extractJsonMessage(const String& body) {
+  int k = body.indexOf("\"message\"");
+  if (k < 0) return String();
+  int colon = body.indexOf(':', k);
+  if (colon < 0) return String();
+  int q = body.indexOf('"', colon);
+  if (q < 0) return String();
+  String out;
+  for (int i = q + 1; i < (int)body.length(); ++i) {
+    const char c = body[i];
+    if (c == '\\') { if (i + 1 < (int)body.length()) out += body[++i]; continue; }
+    if (c == '"') break;
+    out += c;
+    if (out.length() >= 60) break;
+  }
+  return out;
+}
+
 // Open either an https (TLS) or http connection. Mirrors VoiceMemo's beginHttp.
 // TODO(security): replace setInsecure() with pinned CA roots for the four hosts.
 static bool beginHttp(HTTPClient& http, WiFiClientSecure& secure, const String& url) {
@@ -58,6 +80,10 @@ HttpResult HttpClient::send(bool isPost, const String& url, const HttpHeader* re
     if (ra.length()) r.retryAfterSeconds = ra.toInt();
   }
   http.end();
+
+  // Remember the outcome so the caller can surface a failure reason.
+  lastStatus_ = code;
+  lastError_  = (code > 0 && code != 200) ? extractJsonMessage(r.body) : String();
 
   // Log method, URL (truncated — no tokens in these URLs), status, and size.
   sysLog("[http] %s %.60s -> %d (%u bytes)",
