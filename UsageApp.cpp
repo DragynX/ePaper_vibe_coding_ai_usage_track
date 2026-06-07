@@ -289,8 +289,11 @@ String UsageApp::credStatusJson() {
   String s = "{";
   for (uint8_t p = 1; p <= 7; ++p) {
     if (p > 1) s += ",";
+    // A provider with no stored token is always "none" (white), even if it
+    // failed earlier — covers the Clear Token action and empty providers.
+    const uint8_t st = isConfigured(p, cfgStore_) ? credStatus_[p] : 0;
     s += "\""; s += kKeys[p]; s += "\":\"";
-    s += kVal[credStatus_[p] <= 3 ? credStatus_[p] : 0];
+    s += kVal[st <= 3 ? st : 0];
     s += "\"";
   }
   s += "}";

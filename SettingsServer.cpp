@@ -47,6 +47,7 @@ summary{padding:8px 10px;cursor:pointer;font-weight:600;font-size:13px;user-sele
 .chkrow input{width:auto}
 .secret{font-family:monospace;font-size:11px;height:44px;-webkit-text-security:disc}
 .secret:focus{-webkit-text-security:none}
+.clrbtn{float:right;font-size:11px;padding:2px 8px;margin-left:8px;border:none;border-radius:3px;background:#c33;color:#fff;cursor:pointer;font-family:inherit}
 </style>
 </head>
 <body>
@@ -62,7 +63,7 @@ R"rawhtml(
 </div>
 
 <div id="p0" class="pane on">
-  <details><summary id="s_claude">Claude OAuth</summary><div class="inner">
+  <details><summary id="s_claude">Claude OAuth<button class="clrbtn" onclick="clearProv(event,1)">Clear Token</button></summary><div class="inner">
     <label>Access Token<textarea class="secret" id="cl_at" rows="2" spellcheck="false"></textarea></label>
     <label>Refresh Token<textarea class="secret" id="cl_rt" rows="2" spellcheck="false"></textarea></label>
     <label>Expires At<input type="datetime-local" id="cl_exp"></label>
@@ -72,30 +73,30 @@ R"rawhtml(
       <option value="max">Max</option>
     </select></label>
   </div></details>
-  <details><summary id="s_claudeplat">Claude Platform (Admin Key)</summary><div class="inner">
+  <details><summary id="s_claudeplat">Claude Platform (Admin Key)<button class="clrbtn" onclick="clearProv(event,7)">Clear Token</button></summary><div class="inner">
     <label>Admin API Key<textarea class="secret" id="cp_key" rows="2" spellcheck="false"></textarea></label>
     <label>Org ID (optional)<input type="text" id="cp_org" spellcheck="false"></label>
     <p class="note">From console.anthropic.com &#8594; API Keys &#8594; Admin Key. Shows 7-day token totals.</p>
   </div></details>
-  <details><summary id="s_codex">Codex OAuth</summary><div class="inner">
+  <details><summary id="s_codex">Codex OAuth<button class="clrbtn" onclick="clearProv(event,2)">Clear Token</button></summary><div class="inner">
     <label>Access Token<textarea class="secret" id="cx_at" rows="2" spellcheck="false"></textarea></label>
     <label>Refresh Token<textarea class="secret" id="cx_rt" rows="2" spellcheck="false"></textarea></label>
     <label>Account ID<input type="text" id="cx_aid"></label>
     <label>Last Refresh<input type="datetime-local" id="cx_lr"></label>
   </div></details>
-  <details><summary id="s_copilot">GitHub Copilot PAT</summary><div class="inner">
+  <details><summary id="s_copilot">GitHub Copilot PAT<button class="clrbtn" onclick="clearProv(event,3)">Clear Token</button></summary><div class="inner">
     <label>Personal Access Token<textarea class="secret" id="co_pat" rows="2" spellcheck="false"></textarea></label>
     <p class="note">github.com/settings/tokens &#8594; Classic &#8594; needs "copilot" scope</p>
   </div></details>
-  <details><summary id="s_minimax">MiniMax</summary><div class="inner">
+  <details><summary id="s_minimax">MiniMax<button class="clrbtn" onclick="clearProv(event,4)">Clear Token</button></summary><div class="inner">
     <label>API Key<textarea class="secret" id="mm_key" rows="2" spellcheck="false"></textarea></label>
     <label>Region<select id="mm_reg"><option value="0">International (api.minimax.io)</option><option value="1">China (api.minimaxi.com)</option></select></label>
   </div></details>
-  <details><summary id="s_kimi">Kimi</summary><div class="inner">
+  <details><summary id="s_kimi">Kimi<button class="clrbtn" onclick="clearProv(event,5)">Clear Token</button></summary><div class="inner">
     <label>Auth Token (browser cookie kimi-auth)<textarea class="secret" id="ki_tok" rows="2" spellcheck="false"></textarea></label>
     <p class="note">Extract from www.kimi.com DevTools. No refresh &#8212; re-enter when expired.</p>
   </div></details>
-  <details><summary id="s_zai">Zai / Zhipu</summary><div class="inner">
+  <details><summary id="s_zai">Zai / Zhipu<button class="clrbtn" onclick="clearProv(event,6)">Clear Token</button></summary><div class="inner">
     <label>API Key<textarea class="secret" id="za_key" rows="2" spellcheck="false"></textarea></label>
     <label>Endpoint<input type="text" id="za_ep" placeholder="https://api.z.ai"></label>
   </div></details>
@@ -337,6 +338,18 @@ function applyCred(st){
   }
 }
 async function pollCred(){try{applyCred(await fetch('/api/credstatus',{cache:'no-store'}).then(r=>r.json()));}catch(e){}}
+async function clearProv(ev,id){
+  ev.stopPropagation();ev.preventDefault();   // don't toggle the <details>
+  if(!confirm('Clear this provider’s token? It will stop being used.'))return;
+  try{
+    const r=await fetch('/api/clearprovider?prov='+id,{method:'POST'});
+    if(r.ok){
+      // re-pull settings so cleared fields blank out, then recolor white
+      const c=await fetch('/api/settings',{cache:'no-store'}).then(x=>x.json());
+      populate(c);await pollCred();setMsg('Token cleared','green');
+    }else setMsg('Clear failed','red');
+  }catch(e){setMsg('Failed','red');}
+}
 function pollCredFor(ms){const end=Date.now()+ms;const t=setInterval(()=>{pollCred();if(Date.now()>end)clearInterval(t);},2000);}
 fetch('/api/settings').then(r=>r.json()).then(populate).catch(console.error);
 pollCred();
@@ -426,6 +439,20 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
   // GET /api/credstatus → per-provider credential test status
   server->on("/api/credstatus", HTTP_GET, [this](AsyncWebServerRequest* req) {
     req->send(200, "application/json", credJson_ ? credJson_() : "{}");
+  });
+
+  // POST /api/clearprovider?prov=N → wipe that provider's credentials
+  server->on("/api/clearprovider", HTTP_POST, [this](AsyncWebServerRequest* req) {
+    int prov = 0;
+    if (req->hasParam("prov")) prov = req->getParam("prov")->value().toInt();
+    if (prov < 1 || prov > 7) {
+      req->send(400, "application/json", "{\"ok\":false,\"error\":\"prov\"}");
+      return;
+    }
+    cfg_->clearProvider((uint8_t)prov);
+    cfg_->save();
+    if (onSaved_) onSaved_();   // re-wire providers + repaint (clears cache, status)
+    req->send(200, "application/json", "{\"ok\":true}");
   });
 
   // GET /api/status → live info

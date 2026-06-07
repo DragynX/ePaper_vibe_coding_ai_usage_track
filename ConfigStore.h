@@ -68,6 +68,9 @@ class ConfigStore {
   String toJson() const;
   bool   fromJson(const String& json);
 
+  // Erase all credential fields for one provider (id 1..7). Caller saves.
+  void clearProvider(uint8_t prov);
+
  private:
   uint8_t leftProv_    = 0;
   uint8_t rightProv_   = 0;

@@ -153,4 +153,17 @@ bool ConfigStore::fromJson(const String& json) {
   return true;
 }
 
+void ConfigStore::clearProvider(uint8_t prov) {
+  switch (prov) {
+    case UM_PROV_CLAUDE:     cl_at_ = ""; cl_rt_ = ""; cl_exp_ = "0"; break;
+    case UM_PROV_CODEX:      cx_at_ = ""; cx_rt_ = ""; cx_aid_ = ""; cx_lr_ = "0"; break;
+    case UM_PROV_COPILOT:    co_pat_ = ""; break;
+    case UM_PROV_MINIMAX:    mm_key_ = ""; break;
+    case UM_PROV_KIMI:       ki_tok_ = ""; break;
+    case UM_PROV_ZAI:        za_key_ = ""; break;
+    case UM_PROV_CLAUDEPLAT: cp_key_ = ""; cp_org_ = ""; break;
+    default: break;
+  }
+}
+
 }  // namespace usage_monitor
