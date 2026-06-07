@@ -333,8 +333,17 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     display_.fillRect(margin, headerLineY, w - margin * 2, 2, kLine);
   } else {
     drawWifiIcon(w - margin - wifiW, topY, wifiW, wifiH, st.wifiConnected, kText);
+    int leftEdge = w - margin - wifiW;
+    // Battery beside the wifi bars; fill is proportional to charge.
+    if (st.batteryPercent >= 0) {
+      const int battW = 26, battH = 13;
+      const int battX = leftEdge - battW - 10;
+      drawBatteryIcon(battX, topY + (wifiH - battH) / 2, battW, battH,
+                      st.batteryPercent, kText);
+      leftEdge = battX - 3;   // 3px nub drawn past battW
+    }
     if (st.ipAddress.length() > 0 && st.ipAddress != "0.0.0.0") {
-      const int ipX = w - margin - wifiW - 4;
+      const int ipX = leftEdge - 4;
       const int ipY = topY + (wifiH - 7) / 2 + 8;
       renderer_.drawText(st.ipAddress, ipX, ipY, 1, TextAlign::TopRight, kMuted, kBg);
     }

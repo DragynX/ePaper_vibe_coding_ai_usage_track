@@ -45,11 +45,15 @@ summary{padding:8px 10px;cursor:pointer;font-weight:600;font-size:13px;user-sele
 .note{font-size:11px;color:#888;margin-top:4px}
 .chkrow{display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer}
 .chkrow input{width:auto}
-.secret{font-family:monospace;font-size:11px}
+.secret{font-family:monospace;font-size:11px;height:44px;-webkit-text-security:disc}
+.secret:focus{-webkit-text-security:none}
 </style>
 </head>
 <body>
-<h1>&#9881; UsageMonitor Settings</h1>
+)rawhtml"
+"<h1>&#9881; UsageMonitor Settings "
+"<span style='font-size:0.75em;color:#999'>v" UM_VERSION "</span></h1>\n"
+R"rawhtml(
 <div class="tabs">
   <button class="tab on" onclick="go(0)">Credentials</button>
   <button class="tab" onclick="go(1)">Display</button>
@@ -59,8 +63,8 @@ summary{padding:8px 10px;cursor:pointer;font-weight:600;font-size:13px;user-sele
 
 <div id="p0" class="pane on">
   <details><summary>Claude OAuth</summary><div class="inner">
-    <label>Access Token<input type="password" class="secret" id="cl_at" spellcheck="false"></label>
-    <label>Refresh Token<input type="password" class="secret" id="cl_rt" spellcheck="false"></label>
+    <label>Access Token<textarea class="secret" id="cl_at" rows="2" spellcheck="false"></textarea></label>
+    <label>Refresh Token<textarea class="secret" id="cl_rt" rows="2" spellcheck="false"></textarea></label>
     <label>Expires At (ms epoch)<input type="text" id="cl_exp" placeholder="e.g. 1234567890000"></label>
     <label>Subscription<select id="cl_sub">
       <option value="free">Free</option>
@@ -69,30 +73,30 @@ summary{padding:8px 10px;cursor:pointer;font-weight:600;font-size:13px;user-sele
     </select></label>
   </div></details>
   <details><summary>Claude Platform (Admin Key)</summary><div class="inner">
-    <label>Admin API Key<input type="password" class="secret" id="cp_key" spellcheck="false"></label>
+    <label>Admin API Key<textarea class="secret" id="cp_key" rows="2" spellcheck="false"></textarea></label>
     <label>Org ID (optional)<input type="text" id="cp_org" spellcheck="false"></label>
     <p class="note">From console.anthropic.com &#8594; API Keys &#8594; Admin Key. Shows 7-day token totals.</p>
   </div></details>
   <details><summary>Codex OAuth</summary><div class="inner">
-    <label>Access Token<input type="password" class="secret" id="cx_at" spellcheck="false"></label>
-    <label>Refresh Token<input type="password" class="secret" id="cx_rt" spellcheck="false"></label>
+    <label>Access Token<textarea class="secret" id="cx_at" rows="2" spellcheck="false"></textarea></label>
+    <label>Refresh Token<textarea class="secret" id="cx_rt" rows="2" spellcheck="false"></textarea></label>
     <label>Account ID<input type="text" id="cx_aid"></label>
     <label>Last Refresh (ISO8601 or 0)<input type="text" id="cx_lr" placeholder="0"></label>
   </div></details>
   <details><summary>GitHub Copilot PAT</summary><div class="inner">
-    <label>Personal Access Token<input type="password" class="secret" id="co_pat" spellcheck="false"></label>
+    <label>Personal Access Token<textarea class="secret" id="co_pat" rows="2" spellcheck="false"></textarea></label>
     <p class="note">github.com/settings/tokens &#8594; Classic &#8594; needs "copilot" scope</p>
   </div></details>
   <details><summary>MiniMax</summary><div class="inner">
-    <label>API Key<input type="password" class="secret" id="mm_key" spellcheck="false"></label>
+    <label>API Key<textarea class="secret" id="mm_key" rows="2" spellcheck="false"></textarea></label>
     <label>Region<select id="mm_reg"><option value="0">International (api.minimax.io)</option><option value="1">China (api.minimaxi.com)</option></select></label>
   </div></details>
   <details><summary>Kimi</summary><div class="inner">
-    <label>Auth Token (browser cookie kimi-auth)<input type="password" class="secret" id="ki_tok" spellcheck="false"></label>
+    <label>Auth Token (browser cookie kimi-auth)<textarea class="secret" id="ki_tok" rows="2" spellcheck="false"></textarea></label>
     <p class="note">Extract from www.kimi.com DevTools. No refresh &#8212; re-enter when expired.</p>
   </div></details>
   <details><summary>Zai / Zhipu</summary><div class="inner">
-    <label>API Key<input type="password" class="secret" id="za_key" spellcheck="false"></label>
+    <label>API Key<textarea class="secret" id="za_key" rows="2" spellcheck="false"></textarea></label>
     <label>Endpoint<input type="text" id="za_ep" placeholder="https://api.z.ai"></label>
   </div></details>
   <details><summary>Local Stats Server</summary><div class="inner">
@@ -283,16 +287,9 @@ async function loadSt(){
     document.getElementById('st_box').innerHTML='<div class="srow"><span>Unavailable</span></div>';
   }
 }
-document.querySelectorAll('.secret').forEach(el=>{
-  el.addEventListener('focus',()=>el.type='text');
-  el.addEventListener('blur', ()=>el.type='password');
-});
 fetch('/api/settings').then(r=>r.json()).then(populate).catch(console.error);
 </script>
-)rawhtml"
-"<div style='position:fixed;bottom:8px;right:12px;font-size:11px;color:#999;"
-"font-weight:bold'>v" UM_VERSION "</div>\n"
-R"rawhtml(</body>
+</body>
 </html>
 )rawhtml";
 
