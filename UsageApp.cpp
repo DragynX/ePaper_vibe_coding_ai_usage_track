@@ -4,7 +4,9 @@
 #include <ESPAsyncWebServer.h>
 #include <ESPmDNS.h>
 #include <WiFi.h>
+#include <driver/gpio.h>
 #include <esp_sleep.h>
+#include <esp_wifi.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -22,6 +24,12 @@ void dragynWifiApplyWpa3Hardening(void) {}
 namespace usage_monitor {
 
 static const long kSanityFloorEpoch = 1577836800L;
+
+// Green button (GPIO3) is the EXT1 deep-sleep wake source (active-low).
+#define UM_BTN_WAKE GPIO_NUM_3
+
+// Survives deep sleep; diagnostics only.
+RTC_DATA_ATTR static uint32_t g_wakeCount = 0;
 
 // Mirror log output to both USB CDC (Serial, visible on the COM port) and the
 // external UART (Serial1, pins 43/44). EspAppLog accepts one Stream*.
@@ -324,18 +332,27 @@ void UsageApp::begin() {
     espapplog::setStream(&logTee);   // USB CDC + UART pins 43/44
   }
   sysLog("\n[boot] UsageMonitor v" UM_VERSION);
+
+  // Release any pin-hold from before deep sleep, then drive the LED.
+  gpio_hold_dis((gpio_num_t)UM_LED_PIN);
+  gpio_deep_sleep_hold_dis();
   pinMode(UM_LED_PIN, OUTPUT);
   digitalWrite(UM_LED_PIN, LOW);
 
-  // Detect timer wake from deep sleep (vs power-on or manual reset).
-  bool isTimerWake = (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER);
-  if (!isTimerWake) {
-    bootWindowStartMs_ = millis();
-    settingsAvailable_ = true;
-    sysLog("[boot] normal boot (settings window open)");
-  } else {
-    sysLog("[boot] timer wake (settings skipped)");
-  }
+  // Buttons: GPIO3 (green) is the EXT1 wake source; GPIO4/5 (white) reserved.
+  pinMode(3, INPUT_PULLUP);
+  pinMode(4, INPUT);
+  pinMode(5, INPUT);
+
+  // Wake cause drives the awake-window length: cold power-on gets a long window
+  // for first setup; timer/button wakes get a short 30 s window.
+  const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  const bool firstBoot = (cause != ESP_SLEEP_WAKEUP_TIMER &&
+                          cause != ESP_SLEEP_WAKEUP_EXT1);
+  awakeWindowMs_ = firstBoot ? 5UL * 60UL * 1000UL : 30UL * 1000UL;
+  ++g_wakeCount;
+  sysLog("[boot] wake cause=%d firstBoot=%d count=%u window=%lums",
+         (int)cause, firstBoot ? 1 : 0, (unsigned)g_wakeCount, awakeWindowMs_);
 
   cfgStore_.begin();
   http_.configure(45000);
@@ -364,22 +381,22 @@ void UsageApp::begin() {
     ESP.restart();
   }
 
-  if (settingsAvailable_) {
-    MDNS.begin("usagemonitor");
-    // onSaved runs in the async server task — only flip a flag; the actual
-    // palette swap + e-paper repaint happens in loop() (SPI not async-safe).
-    settings_.begin(&server_, &cfgStore_, &readBatteryPercent,
-                    [this]() { redrawPending_ = true; },
-                    [this]() { return credStatusJson(); });
-    server_.begin();
-    sysLog("[settings] http://usagemonitor.local or http://%s",
-           WiFi.localIP().toString().c_str());
-  }
+  // Web server runs whenever we are awake (settings reachable during both the
+  // cold-boot and the 30 s wake windows). onSaved runs in the async server task
+  // — it only flips a flag; the e-paper repaint happens in loop() (not async-safe).
+  MDNS.begin("usagemonitor");
+  settings_.begin(&server_, &cfgStore_, &readBatteryPercent,
+                  [this]() { redrawPending_ = true; },
+                  [this]() { return credStatusJson(); });
+  server_.begin();
+  sysLog("[settings] http://usagemonitor.local or http://%s",
+         WiFi.localIP().toString().c_str());
 
   syncTime();   // non-blocking: starts background SNTP, no splash screen
   ui_.drawBoot(uiStr(UiStringId::kBootFetch), currentStatus(), now());
   refreshAll();
   lastRefreshMs_ = millis();
+  awakeStartMs_  = millis();   // awake window starts after fetch + display
 }
 
 // ---------------------------------------------------------------------------
@@ -408,37 +425,21 @@ void UsageApp::loop() {
     } else {
       ui_.drawDashboard(snapshot_, currentStatus(), now());
     }
+    awakeStartMs_ = millis();   // a settings save extends the awake window
   }
 
-  if (!settingsAvailable_) {
-    // Timer-wake path: already fetched in begin(). Go back to sleep.
-    if (cfgStore_.deepSleepEnabled()) {
-      enterDeepSleep();
-      // enterDeepSleep() never returns; fall through only if deep sleep failed.
-    }
-    // Deep sleep disabled: run normal refresh loop without settings server.
-    if (ms - lastRefreshMs_ >= refreshMs) {
-      lastRefreshMs_ = ms;
-      if (ensureWiFi(10000)) refreshAll();
-    }
-    delay(50);
-    return;
-  }
-
-  // Normal boot path.
-  if (cfgStore_.deepSleepEnabled() &&
-      ms - bootWindowStartMs_ >= 5UL * 60UL * 1000UL) {
-    sysLog("[sleep] boot window closed — entering sleep-refresh cycle");
-    settingsAvailable_ = false;
-    if (ensureWiFi(10000)) refreshAll();
-    enterDeepSleep();
-    // Only reached if enterDeepSleep fails.
-  }
-
+  // Periodic refresh while awake.
   if (ms - lastRefreshMs_ >= refreshMs) {
     lastRefreshMs_ = ms;
     if (ensureWiFi(10000)) refreshAll();
   }
+
+  // Deep sleep (when enabled): after the awake window elapses, tear down and
+  // sleep until the timer or the green button wakes us.
+  if (cfgStore_.deepSleepEnabled() && ms - awakeStartMs_ >= awakeWindowMs_) {
+    enterDeepSleep();   // does not return
+  }
+
   delay(50);
 }
 
@@ -448,11 +449,33 @@ void UsageApp::loop() {
 
 void UsageApp::enterDeepSleep() {
   const uint32_t sec = cfgStore_.refreshSec();
-  sysLog("[sleep] sleeping %us", (unsigned)sec);
-  WiFi.disconnect(false);
+
+  // 1. Let the ePaper finish its last refresh (update() blocks, but guard anyway).
+  delay(50);
+
+  // 2. Stop the web server (SettingsServer/AsyncTCP) before tearing down WiFi.
+  server_.end();
+
+  // 3. Clean WiFi teardown — without esp_wifi_stop()/deinit() the device draws
+  //    high sleep current and is unstable on the next wake (the wake bug).
+  WiFi.disconnect(true, false);
   WiFi.mode(WIFI_OFF);
+  esp_wifi_stop();
+  esp_wifi_deinit();
+
+  // 4. Park the LED off and hold the pin so it doesn't float during sleep.
+  digitalWrite(UM_LED_PIN, HIGH);   // active-low: HIGH = off
+  gpio_hold_en((gpio_num_t)UM_LED_PIN);
+  gpio_deep_sleep_hold_en();
+
+  // 5. Two wake sources: RTC timer (refresh interval) + GPIO3 green button
+  //    (active-low -> ANY_LOW). Both trigger the same wake cycle.
   esp_sleep_enable_timer_wakeup((uint64_t)sec * 1000000ULL);
-  esp_deep_sleep_start();
+  esp_sleep_enable_ext1_wakeup(1ULL << UM_BTN_WAKE, ESP_EXT1_WAKEUP_ANY_LOW);
+
+  sysLog("[sleep] sleeping %us (timer+btn)", (unsigned)sec);
+  delay(20);                  // flush the log line before powering down
+  esp_deep_sleep_start();     // does not return
 }
 
 // ---------------------------------------------------------------------------

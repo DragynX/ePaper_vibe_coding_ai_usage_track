@@ -63,6 +63,8 @@ class UsageApp {
 
   unsigned long lastRefreshMs_     = 0;
   unsigned long bootWindowStartMs_ = 0;
+  unsigned long awakeStartMs_      = 0;   // when the current awake window started
+  unsigned long awakeWindowMs_     = 0;   // how long to stay awake before sleeping
   bool          timeSynced_        = false;
   bool          settingsAvailable_ = false;
   volatile bool redrawPending_     = false;  // set by settings save, handled in loop()
