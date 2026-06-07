@@ -53,6 +53,7 @@ summary{padding:8px 10px;cursor:pointer;font-weight:600;font-size:13px;user-sele
 .modal .box{background:#fff;border-radius:8px;padding:20px;max-width:300px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.4)}
 .modal .box p{margin-bottom:14px;font-size:14px;color:#333}
 .modal .box .row{justify-content:center}
+.sleepclk{margin-left:auto;align-self:center;font-size:12px;color:#888;font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -65,6 +66,7 @@ R"rawhtml(
   <button class="tab" onclick="go(1)">Display</button>
   <button class="tab" onclick="go(2)">System</button>
   <button class="tab" onclick="go(3)">Status</button>
+  <span id="sleepTimer" class="sleepclk"></span>
 </div>
 
 <div id="p0" class="pane on">
@@ -199,6 +201,7 @@ R"rawhtml(
   <button class="btn save" onclick="doSave()">Save Settings</button>
   <span id="msg"></span>
 </div>
+<p class="note" style="text-align:center;margin-top:6px">Press Green button on device to wake up and access this page.</p>
 
 <div id="sleepModal" class="modal"><div class="box">
   <p>Device will sleep in <strong id="sleepCd">30</strong>s.</p>
@@ -210,7 +213,9 @@ R"rawhtml(
 
 <script>
 const NPANE=4;
+let curTab=0;
 function go(n){
+  curTab=n;
   for(let i=0;i<NPANE;i++){
     document.getElementById('p'+i).classList.toggle('on',i===n);
     document.querySelectorAll('.tab')[i].classList.toggle('on',i===n);
@@ -296,7 +301,12 @@ async function doSave(){
     const r=await fetch('/api/settings',{method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(collect())});
-    if(r.ok){setMsg('Saved! Testing tokens…','green');pollCredFor(30000);}
+    // Token tests only run when a credential changed (Credentials tab); only
+    // show "Testing tokens" there.
+    if(r.ok){
+      if(curTab===0){setMsg('Saved! Testing tokens…','green');pollCredFor(30000);}
+      else setMsg('Saved!','green');
+    }
     else setMsg('Error '+r.status,'red');
   }catch(e){setMsg('Failed','red');}
 }
@@ -374,16 +384,34 @@ function pollCredFor(ms){const end=Date.now()+ms;const t=setInterval(()=>{pollCr
 fetch('/api/settings').then(r=>r.json()).then(populate).catch(console.error);
 pollCred();
 
-// Sleep-warning modal: passively poll sleep_in (does NOT keep the device awake);
-// when <=30s show a countdown with Continue Session / Sleep.
+// Sleep-warning modal + countdown: passively poll sleep_in (does NOT keep the
+// device awake); show a Continue/Sleep modal at <=30s and a live MM:SS timer.
 const sModal=document.getElementById('sleepModal');
 const sCd=document.getElementById('sleepCd');
-async function keepAlive(){try{await fetch('/api/keepalive',{method:'POST'});}catch(e){}sModal.classList.remove('on');}
-async function sleepNow(){try{await fetch('/api/sleepnow',{method:'POST'});}catch(e){}sModal.classList.remove('on');setMsg('Sleeping…','#888');}
+const sTimer=document.getElementById('sleepTimer');
+let sleepRemain=-1;       // seconds until sleep (-1 = deep sleep off)
+let userSleeping=false;   // user pressed Sleep -> never re-show modal
+function renderTimer(){
+  if(sleepRemain<0){sTimer.textContent='';return;}
+  const s=Math.max(0,sleepRemain|0);
+  sTimer.textContent='Sleep in '+String((s/60)|0).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}
+setInterval(()=>{if(sleepRemain>0)sleepRemain--;renderTimer();},1000);
+async function keepAlive(){
+  try{await fetch('/api/keepalive',{method:'POST'});}catch(e){}
+  userSleeping=false;sModal.classList.remove('on');pollSleep();
+}
+async function sleepNow(){
+  try{await fetch('/api/sleepnow',{method:'POST'});}catch(e){}
+  userSleeping=true;sModal.classList.remove('on');sleepRemain=0;renderTimer();
+  setMsg('Sleeping…','#888');
+}
 async function pollSleep(){
+  if(userSleeping){sModal.classList.remove('on');sleepRemain=0;renderTimer();return;}
   try{
     const d=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());
     const s=d.sleep_in;
+    sleepRemain=(s==null)?-1:s;renderTimer();
     if(s!=null && s>=0 && s<=30){sCd.textContent=s;sModal.classList.add('on');}
     else sModal.classList.remove('on');
   }catch(e){}
