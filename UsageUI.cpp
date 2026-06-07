@@ -753,13 +753,6 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
   }
 }
 
-// De-ghost counter survives deep sleep so wakes stay on partial refreshes
-// (no flash) and only a periodic draw uses the full waveform.
-RTC_DATA_ATTR static uint32_t g_drawCount = 0;
-static bool s_forceFull = false;
-
-void UsageUI::forceFullRefresh() { s_forceFull = true; }
-
 void UsageUI::drawBoot(const String& statusText, const UiStatus& st, long nowEpoch) {
   display_.fillSprite(kBg);
   drawHeader(st, nowEpoch);
@@ -771,17 +764,6 @@ void UsageUI::drawBoot(const String& statusText, const UiStatus& st, long nowEpo
                            TextFace::SansBold12, TextAlign::MiddleCenter, kText, kBg);
   }
   display_.update();
-}
-
-void UsageUI::drawWakeStatus(const char* text) {
-  // Small status line just under the title; only this strip is pushed, so the
-  // rest of the persisted dashboard stays on screen. x/w are 8-px aligned for
-  // the partial-window hardware requirement.
-  const int x = 24, y = 30, w = 264, hgt = 18;
-  display_.fillRect(x, y, w, hgt, kBg);
-  renderer_.drawTextFace(text ? text : "", x, y, TextFace::Sans9,
-                         TextAlign::TopLeft, kMuted, kBg);
-  display_.updataPartial(x, y, w, hgt);
 }
 
 void UsageUI::drawDashboard(const UsageSnapshot& snap, const UiStatus& st, long nowEpoch) {
@@ -810,13 +792,9 @@ void UsageUI::drawDashboard(const UsageSnapshot& snap, const UiStatus& st, long 
   drawProviderColumn(margin + colW + colGap, colTop, colW, colH, snap.right.name,
                      snap.right, nowEpoch);
 
-  // Push: full refresh on a forced/periodic draw (clears ghosting), otherwise a
-  // whole-frame partial update — same content, no full-screen flash.
-  const bool full = s_forceFull || (g_drawCount % 12 == 0);
-  s_forceFull = false;
-  ++g_drawCount;
-  if (full) display_.update();
-  else      display_.updataPartial(0, 0, display_.width(), display_.height());
+  // GRAY4 only refreshes cleanly with a full update; partial/overlay refresh
+  // corrupts the 4-bpp buffer, so always full-refresh.
+  display_.update();
 }
 
 }  // namespace usage_monitor

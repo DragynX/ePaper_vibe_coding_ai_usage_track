@@ -355,16 +355,20 @@ void UsageApp::begin() {
          (int)cause, firstBoot ? 1 : 0, (unsigned)g_wakeCount, awakeWindowMs_);
 
   cfgStore_.begin();
+  // Apply the saved timezone immediately so the RTC time (kept across deep
+  // sleep, in UTC) renders as local time right away — before NTP re-applies it.
+  setenv("TZ", cfgStore_.tz().c_str(), 1);
+  tzset();
   http_.configure(45000);
   configureProviders();
   localStats_.configure(&http_, cfgStore_.localStatsUrl().c_str());
 
   ui_.begin();
   ui_.setDarkMode(cfgStore_.darkMode());
-  // Cold boot: full splash (nothing to preserve). Wake: keep the persisted
-  // dashboard, show a small status line under the title via partial refresh.
+  // Cold boot: full splash. Wake: draw nothing — GRAY4 only refreshes cleanly
+  // with a full update, so leave the persisted dashboard on screen during
+  // WiFi+fetch and do one clean full refresh when the new data is ready.
   if (firstBoot) ui_.drawBoot(uiStr(UiStringId::kBootWifi), currentStatus(), now());
-  else           ui_.drawWakeStatus(uiStr(UiStringId::kBootWifi));
 
   if (!ensureWiFi(15000)) {
     sysLog("[wifi] STA failed — launching portal");
@@ -396,12 +400,7 @@ void UsageApp::begin() {
          WiFi.localIP().toString().c_str());
 
   syncTime();   // non-blocking: starts background SNTP, no splash screen
-  if (firstBoot) {
-    ui_.drawBoot(uiStr(UiStringId::kBootFetch), currentStatus(), now());
-    ui_.forceFullRefresh();   // clean full-refresh baseline on cold boot
-  } else {
-    ui_.drawWakeStatus(uiStr(UiStringId::kBootFetch));
-  }
+  if (firstBoot) ui_.drawBoot(uiStr(UiStringId::kBootFetch), currentStatus(), now());
   refreshAll();
   lastRefreshMs_ = millis();
   awakeStartMs_  = millis();   // awake window starts after fetch + display

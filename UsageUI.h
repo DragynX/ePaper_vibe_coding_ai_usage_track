@@ -38,13 +38,6 @@ class UsageUI {
   // One-line boot/splash reusing the header band (full clear + full refresh).
   void drawBoot(const String& statusText, const UiStatus& status, long nowEpoch);
 
-  // Wake status: overlay a small status line under the title via a partial
-  // refresh, leaving the rest of the (persisted) panel image untouched.
-  void drawWakeStatus(const char* text);
-
-  // Force the next drawDashboard() to use a full refresh (de-ghost / cold boot).
-  void forceFullRefresh();
-
   // Main two-provider dashboard. nowEpoch (UTC) drives the reset countdowns.
   void drawDashboard(const UsageSnapshot& snap, const UiStatus& status, long nowEpoch);
 
