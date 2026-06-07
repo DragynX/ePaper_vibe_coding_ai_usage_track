@@ -65,6 +65,15 @@ struct ProviderQuota {
 
   bool   hasPlan = false;
   char   planType[16] = {0};          // "plus" / "pro" / "free" / ... from the API
+
+  // Claude Platform (admin usage/cost API).
+  bool   needAdminKey = false;        // key is not an sk-ant-admin key
+  bool   hasCost = false;             // cost_report returned data
+  double costCents = 0.0;             // 7-day total cost (USD cents)
+  uint8_t platCount = 0;              // populated entries in platModels
+  struct PlatModel { char name[20] = {0}; double tokens = 0.0; double cents = 0.0; };
+  PlatModel platModels[5];            // top models by cost
+
   LocalProviderStats local;
 
   // Stale when the last fetch failed, never succeeded, or is older than ttlSec.

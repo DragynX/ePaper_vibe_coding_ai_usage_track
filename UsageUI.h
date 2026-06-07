@@ -78,6 +78,10 @@ class UsageUI {
   void drawNoticeColumn(int x, int y, int w, int h, const char* name,
                         const char* reason);
 
+  // Claude Platform: 7-day cost (USD) + token total + per-model cost bars.
+  void drawPlatformColumn(int x, int y, int w, int h, const char* name,
+                          const ProviderQuota& p, long nowEpoch);
+
   void drawBox(int x, int y, int w, int h, uint16_t fill);
   void drawStatusBadge(int x, int y, const String& text, bool alert);
   void drawInfoRow(int x, int y, int w, const char* label, const String& value,

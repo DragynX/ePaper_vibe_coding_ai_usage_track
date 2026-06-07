@@ -278,9 +278,8 @@ void UsageApp::runPendingTokenTests() {
       credStatus_[prov] = testProvider(prov);
     }
   }
-  // testProvider repoints member usage clients at the scratch OAuthClient;
-  // restore the live left/right wiring before normal fetching resumes.
-  configureProviders();
+  // Note: testProvider repoints member usage clients at a scratch OAuthClient;
+  // the caller must re-run configureProviders() before normal fetching resumes.
 }
 
 String UsageApp::credStatusJson() {
@@ -395,7 +394,8 @@ void UsageApp::loop() {
     sysLog("[ui] settings applied (dark=%d), breakers reset",
            cfgStore_.darkMode() ? 1 : 0);
     if (ensureWiFi(10000)) {
-      runPendingTokenTests();   // test changed creds, then restore live wiring
+      runPendingTokenTests();   // test changed creds (repoints member clients)
+      configureProviders();     // always re-wire: left/right or tokens may have changed
       refreshAll();             // repaint with the new palette + displayed data
     } else {
       ui_.drawDashboard(snapshot_, currentStatus(), now());
@@ -514,10 +514,11 @@ void UsageApp::setProviderNames() {
 // ---------------------------------------------------------------------------
 
 // Compose the on-screen stop reason from what the last fetch revealed.
-static void buildFailReason(char* buf, size_t n, bool relogin, bool refreshFailed,
+static void buildFailReason(char* buf, size_t n, const ProviderQuota& p,
                             int status, const String& err) {
-  if (relogin)             snprintf(buf, n, "Token Revoked or Expired. Update Tokens");
-  else if (refreshFailed)  snprintf(buf, n, "Refresh Token Failing");
+  if (p.needAdminKey)      snprintf(buf, n, "Needs Admin Key (sk-ant-admin)");
+  else if (p.needsRelogin) snprintf(buf, n, "Token Revoked or Expired. Update Tokens");
+  else if (p.refreshFailed) snprintf(buf, n, "Refresh Token Failing");
   else if (err.length())   snprintf(buf, n, "%.*s", (int)n - 1, err.c_str());
   else if (status > 0)     snprintf(buf, n, "HTTP %d", status);
   else if (status < 0)     snprintf(buf, n, "Network error");
@@ -564,8 +565,7 @@ void UsageApp::fetchLeft(long n) {
   } else {
     credStatus_[cfgStore_.leftProvider()] = kCredFail;
     buildFailReason(leftFailReason_, sizeof(leftFailReason_),
-                    snapshot_.left.needsRelogin, snapshot_.left.refreshFailed,
-                    http_.lastStatus(), http_.lastError());
+                    snapshot_.left, http_.lastStatus(), http_.lastError());
     if (++leftFailCount_ >= 2) {
       leftDisabled_ = true;
       snapshot_.left.disabled = true;
@@ -618,8 +618,7 @@ void UsageApp::fetchRight(long n) {
   } else {
     credStatus_[cfgStore_.rightProvider()] = kCredFail;
     buildFailReason(rightFailReason_, sizeof(rightFailReason_),
-                    snapshot_.right.needsRelogin, snapshot_.right.refreshFailed,
-                    http_.lastStatus(), http_.lastError());
+                    snapshot_.right, http_.lastStatus(), http_.lastError());
     if (++rightFailCount_ >= 2) {
       rightDisabled_ = true;
       snapshot_.right.disabled = true;

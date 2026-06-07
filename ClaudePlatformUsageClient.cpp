@@ -2,6 +2,8 @@
 
 #include <ArduinoJson.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include "AppLog.h"
@@ -17,68 +19,137 @@ static void fmtIso(long epoch, char* buf) {
            tm->tm_hour, tm->tm_min, tm->tm_sec);
 }
 
+// Find or create the per-model accumulator slot in out.platModels.
+static ProviderQuota::PlatModel* platSlot(ProviderQuota& out, const char* model) {
+  if (!model || !model[0]) model = "unknown";
+  for (uint8_t i = 0; i < out.platCount; ++i)
+    if (strncmp(out.platModels[i].name, model, sizeof(out.platModels[i].name) - 1) == 0)
+      return &out.platModels[i];
+  if (out.platCount >= 5) return nullptr;   // cap; small models drop off
+  ProviderQuota::PlatModel* m = &out.platModels[out.platCount++];
+  strncpy(m->name, model, sizeof(m->name) - 1);
+  return m;
+}
+
 bool ClaudePlatformUsageClient::fetch(long nowEpoch, ProviderQuota& out) {
   out = ProviderQuota();
   out.id = ProviderId::kClaudePlatform;
+  out.hasPlan = true;
+  strncpy(out.planType, "Platform", sizeof(out.planType) - 1);
 
   if (!http_ || adminKey_.length() == 0) return false;
+
+  // The usage/cost endpoints accept ONLY an Admin key (sk-ant-admin...). A
+  // standard sk-ant-api key returns a misleading 401 "invalid x-api-key"; catch
+  // it here so the UI can say exactly what's wrong.
+  if (!adminKey_.startsWith("sk-ant-admin")) {
+    out.needAdminKey = true;
+    sysLog("[claudeplat] key is not an admin key (sk-ant-admin) — cannot use usage API");
+    return false;
+  }
 
   char startBuf[21], endBuf[21];
   fmtIso(nowEpoch - 7L * 24 * 3600, startBuf);
   fmtIso(nowEpoch, endBuf);
-  sysLog("[claudeplat/usage] fetch start %s..%s", startBuf, endBuf);
-
-  String url = String("https://api.anthropic.com/v1/organizations/usage_report/messages"
-                      "?starting_at=") + startBuf +
-               "&ending_at=" + endBuf +
-               "&group_by[]=model&bucket_width=1d";
+  sysLog("[claudeplat] fetch start %s..%s", startBuf, endBuf);
 
   const HttpHeader extra[] = {
-    { "x-api-key",           adminKey_.c_str() },
-    { "anthropic-version",   "2023-06-01"       },
-    { "Accept",              "application/json"  },
+    { "x-api-key",         adminKey_.c_str() },
+    { "anthropic-version", "2023-06-01"       },
+    { "Accept",            "application/json"  },
   };
-  HttpResult r = http_->get(url, extra, 3, nullptr, 0, "UsageMonitor");
-  if (r.status != 200) {
-    sysLog("[claudeplat/usage] status %d", r.status);
+
+  // --- Usage report: tokens per model -------------------------------------
+  String usageUrl = String("https://api.anthropic.com/v1/organizations/usage_report/messages"
+                           "?starting_at=") + startBuf + "&ending_at=" + endBuf +
+                    "&group_by[]=model&bucket_width=1d";
+  HttpResult ur = http_->get(usageUrl, extra, 3, nullptr, 0, "UsageMonitor/1.4");
+  if (ur.status != 200) {
+    sysLog("[claudeplat/usage] status %d", ur.status);
     return false;
   }
-
-  JsonDocument doc;
-  if (deserializeJson(doc, r.body)) {
-    sysLog("[claudeplat/usage] json parse error");
-    return false;
-  }
-
-  // Sum tokens across all buckets and models.
-  long totalInput = 0, totalOutput = 0, totalCache = 0;
-  JsonArray data = doc["data"];
-  if (!data.isNull()) {
-    for (JsonVariant bucket : data) {
-      JsonVariant results = bucket["results"];
-      if (results.isNull()) {
-        // Flat structure: some API revisions put models directly in the bucket.
-        totalInput  += bucket["input_tokens"]  | 0L;
-        totalOutput += bucket["output_tokens"] | 0L;
-        continue;
-      }
-      for (JsonVariant row : results.as<JsonArray>()) {
-        totalInput  += row["input_tokens"]  | 0L;
-        totalOutput += row["output_tokens"] | 0L;
-        totalCache  += row["cache_read_input_tokens"] | 0L;
+  {
+    JsonDocument doc;
+    if (deserializeJson(doc, ur.body)) {
+      sysLog("[claudeplat/usage] json parse error");
+      return false;
+    }
+    double totalTokens = 0;
+    JsonArray data = doc["data"];
+    if (!data.isNull()) {
+      for (JsonVariant bucket : data) {
+        JsonVariant results = bucket["results"];
+        JsonArray rows = results.isNull() ? JsonArray() : results.as<JsonArray>();
+        if (results.isNull()) {
+          // flat layout: model fields directly on the bucket
+          const double t = (double)(bucket["input_tokens"] | 0L)
+                         + (double)(bucket["output_tokens"] | 0L)
+                         + (double)(bucket["cache_read_input_tokens"] | 0L);
+          totalTokens += t;
+          ProviderQuota::PlatModel* m = platSlot(out, bucket["model"] | "unknown");
+          if (m) m->tokens += t;
+          continue;
+        }
+        for (JsonVariant row : rows) {
+          const double t = (double)(row["input_tokens"] | 0L)
+                         + (double)(row["output_tokens"] | 0L)
+                         + (double)(row["cache_read_input_tokens"] | 0L);
+          totalTokens += t;
+          ProviderQuota::PlatModel* m = platSlot(out, row["model"] | "unknown");
+          if (m) m->tokens += t;
+        }
       }
     }
+    out.hasBalance = true;
+    out.balance    = totalTokens;
   }
 
-  long totalTokens = totalInput + totalOutput + totalCache;
-  out.hasBalance = true;
-  out.balance    = static_cast<double>(totalTokens);
-  out.hasPlan    = true;
-  strncpy(out.planType, "Platform", sizeof(out.planType) - 1);
-  out.ok              = true;
+  // --- Cost report: USD cents per model -----------------------------------
+  String costUrl = String("https://api.anthropic.com/v1/organizations/cost_report"
+                          "?starting_at=") + startBuf + "&ending_at=" + endBuf +
+                   "&group_by[]=description&bucket_width=1d";
+  HttpResult cr = http_->get(costUrl, extra, 3, nullptr, 0, "UsageMonitor/1.4");
+  if (cr.status == 200) {
+    JsonDocument doc;
+    if (!deserializeJson(doc, cr.body)) {
+      double totalCents = 0;
+      JsonArray data = doc["data"];
+      if (!data.isNull()) {
+        for (JsonVariant bucket : data) {
+          JsonVariant results = bucket["results"];
+          JsonArray rows = results.isNull() ? JsonArray() : results.as<JsonArray>();
+          for (JsonVariant row : rows) {
+            // amount is a decimal string of USD cents
+            const double cents = atof(row["amount"] | "0");
+            totalCents += cents;
+            ProviderQuota::PlatModel* m = platSlot(out, row["model"] | "unknown");
+            if (m) m->cents += cents;
+          }
+        }
+      }
+      out.hasCost = true;
+      out.costCents = totalCents;
+    } else {
+      sysLog("[claudeplat/cost] json parse error");
+    }
+  } else {
+    sysLog("[claudeplat/cost] status %d (tokens still shown)", cr.status);
+  }
+
+  // Sort top models by cost (simple insertion sort on the small array).
+  for (uint8_t i = 1; i < out.platCount; ++i) {
+    ProviderQuota::PlatModel key = out.platModels[i];
+    int j = i - 1;
+    while (j >= 0 && out.platModels[j].cents < key.cents) {
+      out.platModels[j + 1] = out.platModels[j]; --j;
+    }
+    out.platModels[j + 1] = key;
+  }
+
+  out.ok = true;
   out.lastSuccessEpoch = nowEpoch;
-  sysLog("[claudeplat/usage] total=%ld (in=%ld out=%ld cache=%ld)",
-         totalTokens, totalInput, totalOutput, totalCache);
+  sysLog("[claudeplat] ok tokens=%.0f cost=%.0f cents models=%d",
+         out.balance, out.costCents, (int)out.platCount);
   return true;
 }
 

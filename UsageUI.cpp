@@ -1,5 +1,6 @@
 #include "UsageUI.h"
 
+#include <string.h>
 #include <time.h>
 
 #include "QuotaMath.h"
@@ -469,6 +470,83 @@ void UsageUI::drawNoticeColumn(int x, int y, int w, int h, const char* name,
   }
 }
 
+void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
+                                 const ProviderQuota& p, long nowEpoch) {
+  // Header: name + last update.
+  renderer_.drawTextFace(name && name[0] ? name : "Claude Platform", x, y,
+                         TextFace::SansBold12, TextAlign::TopLeft, kText, kBg);
+  if (p.lastSuccessEpoch > 0) {
+    time_t t = static_cast<time_t>(p.lastSuccessEpoch);
+    struct tm lt; localtime_r(&t, &lt);
+    char upd[28];
+    snprintf(upd, sizeof(upd), "- last update %02d:%02d", lt.tm_hour, lt.tm_min);
+    const int nameW = renderer_.measureTextFace(name, TextFace::SansBold12);
+    renderer_.drawTextFace(upd, x + nameW + 8, y + 6, TextFace::Sans9,
+                           TextAlign::TopLeft, kMuted, kBg);
+  }
+
+  int cy = y + 40;
+
+  // Big 7-day cost (USD) + token total.
+  char buf[40];
+  if (p.hasCost) {
+    snprintf(buf, sizeof(buf), "$%.2f", p.costCents / 100.0);
+    renderer_.drawTextFace(buf, x, cy, TextFace::SansBold24, TextAlign::TopLeft, kText, kBg);
+    renderer_.drawTextFace("7-day cost", x + w, cy + 10, TextFace::Sans9,
+                           TextAlign::TopRight, kMuted, kBg);
+  } else {
+    renderer_.drawTextFace("$--", x, cy, TextFace::SansBold24, TextAlign::TopLeft, kMuted, kBg);
+  }
+  cy += 40;
+  if (p.hasBalance) {
+    const double tk = p.balance;
+    if (tk >= 1e9) snprintf(buf, sizeof(buf), "%.2fB tokens (7d)", tk / 1e9);
+    else if (tk >= 1e6) snprintf(buf, sizeof(buf), "%.1fM tokens (7d)", tk / 1e6);
+    else if (tk >= 1e3) snprintf(buf, sizeof(buf), "%.1fK tokens (7d)", tk / 1e3);
+    else snprintf(buf, sizeof(buf), "%.0f tokens (7d)", tk);
+    renderer_.drawTextFace(buf, x, cy, TextFace::Sans9, TextAlign::TopLeft, kText, kBg);
+  }
+  cy += 24;
+  display_.fillRect(x, cy, w, 1, kLine);
+  cy += 10;
+
+  // Per-model cost bars (top models, already sorted by cost desc).
+  double maxCents = 0;
+  for (uint8_t i = 0; i < p.platCount; ++i)
+    if (p.platModels[i].cents > maxCents) maxCents = p.platModels[i].cents;
+
+  const int rowH = 34;
+  const int labelW = 120;
+  const int valW = 64;
+  for (uint8_t i = 0; i < p.platCount && cy + rowH <= y + h; ++i) {
+    const ProviderQuota::PlatModel& m = p.platModels[i];
+    // Shorten common model name prefixes for width.
+    const char* nm = m.name;
+    if (strncmp(nm, "claude-", 7) == 0) nm += 7;
+    renderer_.drawTextFace(nm, x, cy, TextFace::Sans9, TextAlign::TopLeft, kText, kBg);
+    const int barX = x + labelW;
+    const int barW = w - labelW - valW;
+    const int barH = 12;
+    const int barY = cy + 2;
+    if (barW > 10) {
+      display_.fillRect(barX, barY, barW, barH, kTrack);
+      const int fill = (maxCents > 0)
+          ? static_cast<int>(barW * (m.cents / maxCents)) : 0;
+      if (fill > 0) display_.fillRect(barX, barY, fill, barH, kText);
+    }
+    char vbuf[16];
+    snprintf(vbuf, sizeof(vbuf), "$%.2f", m.cents / 100.0);
+    renderer_.drawTextFace(vbuf, x + w, cy, TextFace::SansBold9,
+                           TextAlign::TopRight, kText, kBg);
+    cy += rowH;
+  }
+
+  if (p.platCount == 0 && p.ok) {
+    renderer_.drawTextFace("No usage in last 7 days", x, cy, TextFace::Sans9,
+                           TextAlign::TopLeft, kMuted, kBg);
+  }
+}
+
 void UsageUI::drawLocalStatsBlock(int x, int y, int w, int h, const ProviderQuota& p,
                                   long nowEpoch) {
   drawBox(x, y, w, h, kBg);
@@ -589,6 +667,14 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
   }
   if (p.needsRelogin) {
     drawNoticeColumn(x, y, w, h, name, "Token Revoked or Expired. Update Tokens");
+    return;
+  }
+  if (p.needAdminKey) {
+    drawNoticeColumn(x, y, w, h, name, "Needs Admin Key (sk-ant-admin)");
+    return;
+  }
+  if (p.id == ProviderId::kClaudePlatform) {
+    drawPlatformColumn(x, y, w, h, name, p, nowEpoch);
     return;
   }
 
