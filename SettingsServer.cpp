@@ -167,6 +167,10 @@ R"rawhtml(
     <input type="checkbox" id="deep_sleep">
     <span>Enable Deep Sleep between fetches</span>
   </label>
+  <label class="chkrow" style="margin-top:10px">
+    <input type="checkbox" id="dark">
+    <span>Dark mode (screen)</span>
+  </label>
   <p class="note" style="margin-top:4px">When on: settings page is only available for 5 min after power-on/reset. Device sleeps between fetches.</p>
   <div class="row" style="margin-top:20px">
     <button class="btn info" onclick="doRestart()">Restart Device</button>
@@ -229,6 +233,7 @@ function populate(c){
   const mm=document.getElementById('mm_reg');if(mm)mm.value=String(c.mm_reg??0);
   const rs=document.getElementById('ref_sec');if(rs){rs.value=c.ref_sec??300;updRef(rs.value);}
   const ds=document.getElementById('deep_sleep');if(ds)ds.checked=!!c.deep_sleep;
+  const dk=document.getElementById('dark');if(dk)dk.checked=!!c.dark;
   const lp=document.getElementById('left_prov');if(lp)lp.value=String(c.left_prov??0);
   const rp=document.getElementById('right_prov');if(rp)rp.value=String(c.right_prov??0);
   const tzv=c.tz??'UTC0';
@@ -246,6 +251,7 @@ function collect(){
   d.mm_reg=parseInt(document.getElementById('mm_reg')?.value??'0');
   d.ref_sec=parseInt(document.getElementById('ref_sec').value);
   d.deep_sleep=document.getElementById('deep_sleep').checked;
+  d.dark=document.getElementById('dark').checked;
   d.left_prov=parseInt(document.getElementById('left_prov').value);
   d.right_prov=parseInt(document.getElementById('right_prov').value);
   const tzSel=document.getElementById('tz_sel');
@@ -335,9 +341,11 @@ static String jsonEscape(const String& in) {
   return out;
 }
 
-void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battPct)()) {
+void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battPct)(),
+                           std::function<void()> onSaved) {
   cfg_ = cfg;
   battPct_ = battPct;
+  onSaved_ = onSaved;
 
   // GET / → settings page
   server->on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
@@ -359,6 +367,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
       }
       if (cfg_->fromJson(*body)) {
         cfg_->save();
+        if (onSaved_) onSaved_();   // e.g. apply dark mode + repaint (async-safe flag)
         req->send(200, "application/json", "{\"ok\":true}");
       } else {
         req->send(400, "application/json", "{\"ok\":false,\"error\":\"parse\"}");

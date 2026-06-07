@@ -19,6 +19,7 @@ void ConfigStore::load() {
   tz_         = p.getString("tz", "UTC0");
   refreshSec_ = p.getUInt("ref_sec", 300);
   deepSleep_  = p.getBool("deep_sleep", false);
+  dark_       = p.getBool("dark", false);
   cl_at_  = p.getString("cl_at",  "");
   cl_rt_  = p.getString("cl_rt",  "");
   cl_exp_ = p.getString("cl_exp", "0");
@@ -48,6 +49,7 @@ void ConfigStore::save() {
   p.putString("tz",        tz_);
   p.putUInt("ref_sec",     refreshSec_);
   p.putBool("deep_sleep",  deepSleep_);
+  p.putBool("dark",        dark_);
   p.putString("cl_at",     cl_at_);
   p.putString("cl_rt",     cl_rt_);
   p.putString("cl_exp",    cl_exp_);
@@ -76,6 +78,7 @@ String ConfigStore::toJson() const {
   doc["tz"]         = tz_;
   doc["ref_sec"]    = refreshSec_;
   doc["deep_sleep"] = deepSleep_;
+  doc["dark"]       = dark_;
   // Secret fields are never echoed back: the GET response is reachable by any
   // LAN client. Emit "" plus a <key>_set flag so the UI can show saved state.
   doc["cl_at"]      = "";
@@ -126,6 +129,7 @@ bool ConfigStore::fromJson(const String& json) {
   if (!doc["tz"].isNull())  tz_  = doc["tz"].as<String>();
   setRefreshSec(doc["ref_sec"] | refreshSec_);
   deepSleep_ = doc["deep_sleep"] | deepSleep_;
+  dark_      = doc["dark"] | dark_;
   setSecret("cl_at", cl_at_);
   setSecret("cl_rt", cl_rt_);
   if (!doc["cl_exp"].isNull()) cl_exp_ = doc["cl_exp"].as<String>();

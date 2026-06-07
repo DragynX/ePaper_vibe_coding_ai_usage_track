@@ -60,6 +60,7 @@ class UsageApp {
   unsigned long bootWindowStartMs_ = 0;
   bool          timeSynced_        = false;
   bool          settingsAvailable_ = false;
+  volatile bool redrawPending_     = false;  // set by settings save, handled in loop()
 
   // Per-provider auth states
   AuthState claudeAuth_, codexAuth_, copilotAuth_,

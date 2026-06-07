@@ -276,6 +276,7 @@ void UsageApp::begin() {
   localStats_.configure(&http_, cfgStore_.localStatsUrl().c_str());
 
   ui_.begin();
+  ui_.setDarkMode(cfgStore_.darkMode());
   ui_.drawBoot(uiStr(UiStringId::kBootWifi), currentStatus(), now());
 
   if (!ensureWiFi(15000)) {
@@ -298,7 +299,10 @@ void UsageApp::begin() {
 
   if (settingsAvailable_) {
     MDNS.begin("usagemonitor");
-    settings_.begin(&server_, &cfgStore_, &readBatteryPercent);
+    // onSaved runs in the async server task — only flip a flag; the actual
+    // palette swap + e-paper repaint happens in loop() (SPI not async-safe).
+    settings_.begin(&server_, &cfgStore_, &readBatteryPercent,
+                    [this]() { redrawPending_ = true; });
     server_.begin();
     sysLog("[settings] http://usagemonitor.local or http://%s",
            WiFi.localIP().toString().c_str());
@@ -318,6 +322,15 @@ void UsageApp::begin() {
 void UsageApp::loop() {
   const unsigned long ms = millis();
   const unsigned long refreshMs = (unsigned long)cfgStore_.refreshSec() * 1000UL;
+
+  // A settings save requested a repaint (e.g. dark-mode toggle). Apply the
+  // palette and redraw the current snapshot here, on the main task (SPI-safe).
+  if (redrawPending_) {
+    redrawPending_ = false;
+    ui_.setDarkMode(cfgStore_.darkMode());
+    ui_.drawDashboard(snapshot_, currentStatus(), now());
+    sysLog("[ui] settings applied, repaint (dark=%d)", cfgStore_.darkMode() ? 1 : 0);
+  }
 
   if (!settingsAvailable_) {
     // Timer-wake path: already fetched in begin(). Go back to sleep.

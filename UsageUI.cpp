@@ -14,16 +14,18 @@ namespace {
 // headroom: E1001 gray4, E1002 six-color, E1003 gray16.
 // 同一套绘制代码按面板能力选调色板。
 #if UM_SCREEN_MODE == UM_SCREEN_GRAY4
-constexpr uint16_t kBg     = TFT_GRAY_3;
-constexpr uint16_t kCard   = TFT_GRAY_2;
-constexpr uint16_t kText   = TFT_GRAY_0;
-constexpr uint16_t kInv    = TFT_GRAY_3;
-constexpr uint16_t kMuted  = TFT_GRAY_1;
-constexpr uint16_t kLine   = TFT_GRAY_1;
-constexpr uint16_t kTrack  = TFT_GRAY_3;
-constexpr uint16_t kHealthy = TFT_GRAY_0;
-constexpr uint16_t kWarn    = TFT_GRAY_1;
-constexpr uint16_t kCrit    = TFT_GRAY_0;
+// Runtime palette (light by default). Dark mode inverts each gray level
+// (new = GRAY_3 - old) via UsageUI::setDarkMode(). 0=black .. 3=white.
+uint16_t kBg     = TFT_GRAY_3;
+uint16_t kCard   = TFT_GRAY_2;
+uint16_t kText   = TFT_GRAY_0;
+uint16_t kInv    = TFT_GRAY_3;
+uint16_t kMuted  = TFT_GRAY_1;
+uint16_t kLine   = TFT_GRAY_1;
+uint16_t kTrack  = TFT_GRAY_3;
+uint16_t kHealthy = TFT_GRAY_0;
+uint16_t kWarn    = TFT_GRAY_1;
+uint16_t kCrit    = TFT_GRAY_0;
 #elif UM_SCREEN_MODE == UM_SCREEN_COLOR6
 constexpr uint16_t kBg     = TFT_WHITE;
 constexpr uint16_t kCard   = TFT_WHITE;
@@ -102,6 +104,23 @@ void UsageUI::begin() {
   display_.initGrayMode(GRAY_LEVEL16);
 #endif
   renderer_.begin(display_);
+}
+
+void UsageUI::setDarkMode(bool dark) {
+#if UM_SCREEN_MODE == UM_SCREEN_GRAY4
+  // Invert the grayscale ramp for dark mode (new = GRAY_3 - old).
+  if (dark) {
+    kBg = TFT_GRAY_0; kCard = TFT_GRAY_1; kText = TFT_GRAY_3; kInv = TFT_GRAY_0;
+    kMuted = TFT_GRAY_2; kLine = TFT_GRAY_2; kTrack = TFT_GRAY_0;
+    kHealthy = TFT_GRAY_3; kWarn = TFT_GRAY_2; kCrit = TFT_GRAY_3;
+  } else {
+    kBg = TFT_GRAY_3; kCard = TFT_GRAY_2; kText = TFT_GRAY_0; kInv = TFT_GRAY_3;
+    kMuted = TFT_GRAY_1; kLine = TFT_GRAY_1; kTrack = TFT_GRAY_3;
+    kHealthy = TFT_GRAY_0; kWarn = TFT_GRAY_1; kCrit = TFT_GRAY_0;
+  }
+#else
+  (void)dark;   // single fixed palette on color / gray16 panels
+#endif
 }
 
 uint16_t UsageUI::displayWidth()  { return static_cast<uint16_t>(display_.width()); }

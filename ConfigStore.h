@@ -14,6 +14,7 @@ class ConfigStore {
   const String& tz() const      { return tz_; }
   uint32_t refreshSec() const   { return refreshSec_; }
   bool deepSleepEnabled() const { return deepSleep_; }
+  bool darkMode() const         { return dark_; }
 
   const String& claudeAt() const       { return cl_at_; }
   const String& claudeRt() const       { return cl_rt_; }
@@ -38,6 +39,7 @@ class ConfigStore {
   void setTz(const String& v)            { tz_ = v; }
   void setRefreshSec(uint32_t v)         { refreshSec_ = (v < 300 ? 300 : (v > 3600 ? 3600 : v)); }
   void setDeepSleep(bool v)              { deepSleep_ = v; }
+  void setDarkMode(bool v)               { dark_ = v; }
   void setClaudeAt(const String& v)      { cl_at_ = v; }
   void setClaudeRt(const String& v)      { cl_rt_ = v; }
   void setClaudeExp(const String& v)     { cl_exp_ = v; }
@@ -65,6 +67,7 @@ class ConfigStore {
   String  tz_          = "UTC0";
   uint32_t refreshSec_ = 300;
   bool    deepSleep_   = false;
+  bool    dark_        = false;
 
   String cl_at_, cl_rt_, cl_exp_, cl_sub_;
   String cx_at_, cx_rt_, cx_aid_, cx_lr_;

@@ -31,6 +31,10 @@ class UsageUI {
   uint16_t displayWidth();
   uint16_t displayHeight();
 
+  // Select the screen palette. Dark mode inverts the grayscale ramp
+  // (black background, white ink) on the GRAY4 panel. No-op on other panels.
+  void setDarkMode(bool dark);
+
   // One-line boot/splash reusing the header band.
   void drawBoot(const String& statusText, const UiStatus& status, long nowEpoch);
 
