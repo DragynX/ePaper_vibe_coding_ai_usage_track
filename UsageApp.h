@@ -65,13 +65,15 @@ class UsageApp {
   unsigned long bootWindowStartMs_ = 0;
   unsigned long awakeStartMs_      = 0;   // when the current awake window started
   unsigned long awakeWindowMs_     = 0;   // how long to stay awake before sleeping
+  unsigned long lastSleepTickMs_   = 0;   // last [sleep] countdown tick log
   long          lastFetchEpoch_    = 0;   // wall-clock of the last successful refresh
   volatile bool sleepNow_          = false;  // web "Sleep" button requested
   bool          timeSynced_        = false;
   bool          settingsAvailable_ = false;
 
-  void extendAwake();          // a user web action -> keep awake 2 min
+  void extendAwake(const char* reason);   // a user web action -> keep awake 2 min
   int  sleepInSec();           // seconds until deep sleep, or -1 if disabled
+  uint32_t bootId();           // RTC wake counter; changes every wake (session token)
   volatile bool redrawPending_     = false;  // set by settings save, handled in loop()
 
   // Per-side circuit breaker: after 2 consecutive fetch failures a side is

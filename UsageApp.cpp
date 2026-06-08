@@ -364,6 +364,8 @@ void UsageApp::begin() {
   setenv("TZ", cfgStore_.tz().c_str(), 1);
   tzset();
   g_battFullMv = cfgStore_.battFullMv();
+  sysLog("[sleep] boot_id=%u deep_sleep=%d", (unsigned)g_wakeCount,
+         cfgStore_.deepSleepEnabled() ? 1 : 0);
   http_.configure(45000);
   configureProviders();
   localStats_.configure(&http_, cfgStore_.localStatsUrl().c_str());
@@ -400,9 +402,10 @@ void UsageApp::begin() {
   settings_.begin(&server_, &cfgStore_, &readBatteryPercent,
                   [this]() { redrawPending_ = true; },
                   [this]() { return credStatusJson(); },
-                  [this]() { extendAwake(); },        // Continue Session / user action
-                  [this]() { sleepNow_ = true; },     // Sleep now
-                  [this]() { return sleepInSec(); }); // seconds until sleep
+                  [this]() { extendAwake("web action"); },   // keepalive / clear / save
+                  [this]() { sleepNow_ = true; sysLog("[sleep] sleep-now requested (web)"); },
+                  [this]() { return sleepInSec(); },         // seconds until sleep
+                  [this]() { return (int)bootId(); });       // session token (wake count)
   server_.begin();
   sysLog("[settings] http://usagemonitor.local or http://%s",
          WiFi.localIP().toString().c_str());
@@ -441,7 +444,9 @@ void UsageApp::loop() {
       ui_.drawDashboard(snapshot_, currentStatus(), now());
     }
     g_battFullMv = cfgStore_.battFullMv();   // pick up a changed battery setting
-    extendAwake();              // a settings save is a user action -> keep awake 2 min
+    sysLog("[sleep] settings applied: deep_sleep=%d window=%lus",
+           cfgStore_.deepSleepEnabled() ? 1 : 0, awakeWindowMs_ / 1000UL);
+    extendAwake("save");        // a settings save keeps the device awake 2 min
   }
 
   // Periodic refresh while awake.
@@ -450,10 +455,20 @@ void UsageApp::loop() {
     if (ensureWiFi(10000)) refreshAll();
   }
 
+  // Countdown tick (~every 10 s) for diagnostics while deep sleep is enabled.
+  const unsigned long nowMs = millis();
+  if (cfgStore_.deepSleepEnabled() && nowMs - lastSleepTickMs_ >= 10000UL) {
+    lastSleepTickMs_ = nowMs;
+    sysLog("[sleep] awake, sleeps in %ds", sleepInSec());
+  }
+
   // Deep sleep (when enabled): on an explicit web "Sleep", or after the awake
-  // window elapses, tear down and sleep until the timer or green button wakes us.
-  if (cfgStore_.deepSleepEnabled() &&
-      (sleepNow_ || ms - awakeStartMs_ >= awakeWindowMs_)) {
+  // window elapses, sleep until the timer or green button wakes us. Use a fresh
+  // millis() and a SIGNED compare — `ms` (captured at loop top) can be stale after
+  // a multi-second refresh, and an unsigned underflow would sleep instantly.
+  const bool windowElapsed = (long)(nowMs - awakeStartMs_) >= (long)awakeWindowMs_;
+  if (cfgStore_.deepSleepEnabled() && (sleepNow_ || windowElapsed)) {
+    sysLog("[sleep] entering deep sleep (reason=%s)", sleepNow_ ? "user" : "window-elapsed");
     enterDeepSleep();   // does not return
   }
 
@@ -461,9 +476,11 @@ void UsageApp::loop() {
 }
 
 // A user web action keeps the device awake for at least 2 minutes.
-void UsageApp::extendAwake() {
+void UsageApp::extendAwake(const char* reason) {
   awakeStartMs_  = millis();
   if (awakeWindowMs_ < 120000UL) awakeWindowMs_ = 120000UL;
+  sysLog("[sleep] window extended to %lus by %s (sleeps in %ds)",
+         awakeWindowMs_ / 1000UL, reason ? reason : "?", sleepInSec());
 }
 
 // Seconds until deep sleep, or -1 when deep sleep is disabled.
@@ -473,6 +490,8 @@ int UsageApp::sleepInSec() {
   const long remain  = (long)awakeWindowMs_ - elapsed;
   return remain > 0 ? (int)(remain / 1000) : 0;
 }
+
+uint32_t UsageApp::bootId() { return g_wakeCount; }
 
 // ---------------------------------------------------------------------------
 // enterDeepSleep

@@ -17,7 +17,8 @@ class SettingsServer {
              std::function<String()> credJson = nullptr,
              std::function<void()> onKeepAlive = nullptr,
              std::function<void()> onSleepNow = nullptr,
-             std::function<int()> sleepInSec = nullptr);
+             std::function<int()> sleepInSec = nullptr,
+             std::function<int()> bootId = nullptr);
 
  private:
   ConfigStore* cfg_ = nullptr;
@@ -27,6 +28,7 @@ class SettingsServer {
   std::function<void()> onKeepAlive_;
   std::function<void()> onSleepNow_;
   std::function<int()> sleepInSec_;
+  std::function<int()> bootId_;
 };
 
 }  // namespace usage_monitor

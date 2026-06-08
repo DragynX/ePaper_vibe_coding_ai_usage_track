@@ -408,19 +408,23 @@ async function sleepNow(){
   setMsg('Sleeping…','#888');
 }
 let wasOnline=true;   // device reachability; false while it's asleep/unreachable
+let bootId=null;      // device session token; changes every wake (boot_id)
+function resync(){     // pull fresh values after a wake / reconnect
+  fetch('/api/settings',{cache:'no-store'}).then(r=>r.json()).then(populate).catch(()=>{});
+  pollCred();
+}
 async function pollSleep(){
-  // While the user has chosen Sleep AND the device is still reachable (hasn't
-  // dropped yet), keep the modal hidden and the timer at 0.
   if(userSleeping && wasOnline){sModal.classList.remove('on');sleepRemain=0;renderTimer();return;}
   try{
     const d=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());
-    if(!wasOnline){
-      // Device just came back from sleep — resync the whole page and re-enable
-      // the timer/modal (clears any latched Sleep choice).
-      wasOnline=true;userSleeping=false;
-      fetch('/api/settings',{cache:'no-store'}).then(r=>r.json()).then(populate).catch(()=>{});
-      pollCred();
+    // boot_id changes on every device wake -> treat as a fresh session: clear
+    // stale counters/cache, resync, and (if this tab is visible) keep it awake.
+    const woke=(bootId!==null && d.boot_id!==bootId);
+    if(woke || !wasOnline){
+      wasOnline=true;userSleeping=false;resync();
+      if(woke && document.visibilityState==='visible')keepAlive();  // auto 2-min
     }
+    bootId=d.boot_id;
     const s=d.sleep_in;
     sleepRemain=(s==null)?-1:s;renderTimer();
     if(s!=null && s>=0 && s<=30){sCd.textContent=s;sModal.classList.add('on');}
@@ -472,7 +476,8 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
                            std::function<String()> credJson,
                            std::function<void()> onKeepAlive,
                            std::function<void()> onSleepNow,
-                           std::function<int()> sleepInSec) {
+                           std::function<int()> sleepInSec,
+                           std::function<int()> bootId) {
   cfg_ = cfg;
   battPct_ = battPct;
   onSaved_ = onSaved;
@@ -480,6 +485,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
   onKeepAlive_ = onKeepAlive;
   onSleepNow_ = onSleepNow;
   sleepInSec_ = sleepInSec;
+  bootId_ = bootId;
 
   // GET / → settings page
   server->on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
@@ -501,6 +507,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
       }
       if (cfg_->fromJson(*body)) {
         cfg_->save();
+        sysLog("[web] save -> extend awake");
         if (onSaved_)    onSaved_();      // apply changes + repaint (async-safe flag)
         if (onKeepAlive_) onKeepAlive_(); // a save is a user action -> extend NOW
         sendNoCache(req, 200, "application/json", "{\"ok\":true}");
@@ -538,6 +545,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
 
   // POST /api/keepalive → user chose Continue Session: keep awake 2 minutes
   server->on("/api/keepalive", HTTP_POST, [this](AsyncWebServerRequest* req) {
+    sysLog("[web] keepalive (Continue Session)");
     if (onKeepAlive_) onKeepAlive_();
     sendNoCache(req, 200, "application/json", "{\"ok\":true}");
   });
@@ -558,6 +566,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
     }
     cfg_->clearProvider((uint8_t)prov);
     cfg_->save();
+    sysLog("[web] clear provider %d -> extend awake", prov);
     if (onSaved_)     onSaved_();    // re-wire providers + repaint (clears cache, status)
     if (onKeepAlive_) onKeepAlive_();
     sendNoCache(req, 200, "application/json", "{\"ok\":true}");
@@ -570,10 +579,12 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
     unsigned long up = millis() / 1000UL;
     const int batt = battPct_ ? battPct_() : -1;
     const int sleepIn = sleepInSec_ ? sleepInSec_() : -1;  // passive: does NOT extend
+    const int boot = bootId_ ? bootId_() : 0;
     String json = "{\"ip\":\"" + ip + "\","
                   "\"ssid\":\"" + ssid + "\","
                   "\"batt\":" + String(batt) + ","
                   "\"sleep_in\":" + String(sleepIn) + ","
+                  "\"boot_id\":" + String(boot) + ","
                   "\"uptime_sec\":" + String(up) + ","
                   "\"left_prov\":"  + String(cfg_->leftProvider()) + ","
                   "\"right_prov\":" + String(cfg_->rightProvider()) + "}";
