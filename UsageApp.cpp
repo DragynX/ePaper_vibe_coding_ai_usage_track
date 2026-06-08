@@ -237,12 +237,12 @@ void UsageApp::wireProvider(uint8_t prov, OAuthClient& oauth,
 
       case UM_PROV_CLAUDEPLAT: {
         const double prepaidCents = atof(cfgStore_.claudePlatPrepaid().c_str()) * 100.0;
-        long topupEpoch = 0;
-        if (cfgStore_.claudePlatTopup().length() >= 10) {   // "YYYY-MM-DD"
-          topupEpoch = umParseIso8601((cfgStore_.claudePlatTopup() + "T00:00:00Z").c_str());
-        }
+        const bool spendMode = (cfgStore_.claudePlatMode() == "spend");
+        int windowDays = spendMode ? atoi(cfgStore_.claudePlatSpendWin().c_str()) : 30;
+        if (windowDays != 7 && windowDays != 14 && windowDays != 30) windowDays = 30;
         claudePlatClient_.configure(&http_, cfgStore_.claudePlatKey(),
-                                    cfgStore_.claudePlatOrg(), prepaidCents, topupEpoch);
+                                    cfgStore_.claudePlatOrg(), prepaidCents,
+                                    windowDays, spendMode);
         authPtr = nullptr;       // admin key never refreshed
         client  = &claudePlatClient_;
         break;
@@ -604,6 +604,7 @@ UiStatus UsageApp::currentStatus() {
   const bool draining = (days >= 0.0f);
   s.batteryDays = days;
   s.batteryCharging = !draining && (Serial.isPlugged() || (deep && cyc >= 3));
+  s.deepSleepOn = deep;   // header moon indicator
   return s;
 }
 

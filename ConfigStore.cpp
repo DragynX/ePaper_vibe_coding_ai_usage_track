@@ -41,6 +41,8 @@ void ConfigStore::load() {
   cp_org_ = p.getString("cp_org", "");
   cp_prepaid_ = p.getString("cp_prepaid", "");
   cp_topup_   = p.getString("cp_topup", "");
+  cp_mode_     = p.getString("cp_mode", "prepaid");
+  cp_spendwin_ = p.getString("cp_spendwin", "30");
   ls_url_ = p.getString("ls_url", "");
   p.end();
   sysLog("[cfg] loaded left=%d right=%d ref=%us", (int)leftProv_, (int)rightProv_, (unsigned)refreshSec_);
@@ -75,6 +77,8 @@ void ConfigStore::save() {
   p.putString("cp_org",    cp_org_);
   p.putString("cp_prepaid", cp_prepaid_);
   p.putString("cp_topup",   cp_topup_);
+  p.putString("cp_mode",     cp_mode_);
+  p.putString("cp_spendwin", cp_spendwin_);
   p.putString("ls_url",    ls_url_);
   p.end();
   sysLog("[cfg] saved");
@@ -115,6 +119,8 @@ String ConfigStore::toJson() const {
   doc["cp_org"]     = cp_org_;
   doc["cp_prepaid"] = cp_prepaid_;
   doc["cp_topup"]   = cp_topup_;
+  doc["cp_mode"]     = cp_mode_;
+  doc["cp_spendwin"] = cp_spendwin_;
   doc["ls_url"]     = ls_url_;
   String out;
   serializeJson(doc, out);
@@ -160,7 +166,8 @@ bool ConfigStore::fromJson(const String& json) {
   setSecret("cp_key", cp_key_, UM_PROV_CLAUDEPLAT);
   if (!doc["cp_org"].isNull()) cp_org_ = doc["cp_org"].as<String>();
   if (!doc["cp_prepaid"].isNull()) cp_prepaid_ = doc["cp_prepaid"].as<String>();
-  if (!doc["cp_topup"].isNull())   cp_topup_   = doc["cp_topup"].as<String>();
+  if (!doc["cp_mode"].isNull())     cp_mode_     = doc["cp_mode"].as<String>();
+  if (!doc["cp_spendwin"].isNull()) cp_spendwin_ = doc["cp_spendwin"].as<String>();
   if (!doc["ls_url"].isNull()) ls_url_ = doc["ls_url"].as<String>();
   return true;
 }

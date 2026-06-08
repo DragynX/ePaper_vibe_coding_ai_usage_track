@@ -83,9 +83,14 @@ R"rawhtml(
   <details><summary id="s_claudeplat">Claude Platform (Admin Key)<button id="clr_claudeplat" class="clrbtn" onclick="clearProv(event,7)">Clear Token</button></summary><div class="inner">
     <label>Admin API Key<textarea class="secret" id="cp_key" rows="2" spellcheck="false"></textarea></label>
     <label>Org ID (optional)<input type="text" id="cp_org" spellcheck="false"></label>
+    <label>Device shows<span><label class="rad"><input type="radio" name="cp_mode" id="cp_mode_prepaid" value="prepaid" onchange="cpMode()"> Prepaid</label> <label class="rad"><input type="radio" name="cp_mode" id="cp_mode_spend" value="spend" onchange="cpMode()"> Spend</label></span></label>
+    <div id="cp_prepaid_box">
     <label>Prepaid Amount ($)<input type="number" step="0.01" id="cp_prepaid" placeholder="e.g. 50.00"></label>
-    <label>Top-up Date<input type="date" id="cp_topup"></label>
-    <p class="note">From console.anthropic.com &#8594; API Keys &#8594; Admin Key. "$ left" = prepaid &#8722; spend since the top-up date. Re-enter when you replenish (within ~31 days).</p>
+    </div>
+    <div id="cp_spend_box">
+    <label>Spend window<select id="cp_spendwin"><option value="7">7 day cost</option><option value="14">14 day cost</option><option value="30">30 day cost</option></select></label>
+    </div>
+    <p class="note">From console.anthropic.com &#8594; API Keys &#8594; Admin Key. <b>Prepaid</b>: device shows prepaid &#8722; 30-day cost remaining. <b>Spend</b>: device shows the chosen 7/14/30-day cost.</p>
   </div></details>
   <details><summary id="s_codex">Codex OAuth<button id="clr_codex" class="clrbtn" onclick="clearProv(event,2)">Clear Token</button></summary><div class="inner">
     <label>Access Token<textarea class="secret" id="cx_at" rows="2" spellcheck="false"></textarea></label>
@@ -236,7 +241,7 @@ function onTzSel(v){
 const STR_IDS=['cl_at','cl_rt','cl_sub',
                'cx_at','cx_rt','cx_aid',
                'co_pat','mm_key','ki_tok',
-               'za_key','za_ep','cp_key','cp_org','cp_prepaid','cp_topup','ls_url'];
+               'za_key','za_ep','cp_key','cp_org','cp_prepaid','cp_spendwin','ls_url'];
 // datetime-local <-> wire format (cl_exp: ms epoch string, cx_lr: ISO8601)
 function msToLocal(ms){const n=parseInt(ms);if(!n)return'';
   const d=new Date(n);return new Date(n-d.getTimezoneOffset()*60000).toISOString().slice(0,16);}
@@ -270,6 +275,9 @@ function populate(c){
   const se=document.getElementById('secure');if(se)se.checked=!!c.secure;
   const lp=document.getElementById('left_prov');if(lp)lp.value=String(c.left_prov??0);
   const rp=document.getElementById('right_prov');if(rp)rp.value=String(c.right_prov??0);
+  const cpm=String(c.cp_mode??'prepaid')==='spend'?'spend':'prepaid';
+  const cpr=document.getElementById('cp_mode_'+cpm);if(cpr)cpr.checked=true;
+  cpMode();
   const tzv=c.tz??'UTC0';
   const tzSel=document.getElementById('tz_sel');
   const tzCust=document.getElementById('tz_custom');
@@ -290,9 +298,19 @@ function collect(){
   d.left_prov=parseInt(document.getElementById('left_prov').value);
   d.right_prov=parseInt(document.getElementById('right_prov').value);
   d.batt_full=parseInt(document.getElementById('batt_full')?.value||'4200');
+  const cpr=document.querySelector('input[name=cp_mode]:checked');
+  d.cp_mode=cpr?cpr.value:'prepaid';
   const tzSel=document.getElementById('tz_sel');
   d.tz=tzSel&&tzSel.value==='custom'?(document.getElementById('tz_custom')?.value??'UTC0'):(tzSel?.value??'UTC0');
   return d;
+}
+// Show the prepaid amount vs spend-window field based on the cp_mode radio.
+function cpMode(){
+  const spend=document.getElementById('cp_mode_spend')?.checked;
+  const pb=document.getElementById('cp_prepaid_box');
+  const sb=document.getElementById('cp_spend_box');
+  if(pb)pb.style.display=spend?'none':'block';
+  if(sb)sb.style.display=spend?'block':'none';
 }
 let msgTimer=null;
 function setMsg(t,c){
@@ -398,6 +416,7 @@ const sTimer=document.getElementById('sleepTimer');
 const wBox=document.getElementById('wakeBox');
 const wMsg=document.getElementById('wakeMsg');
 const WAKE_MSG='Press Green button on device to wake up and access this page.';
+const ASLEEP_MSG='Device is asleep — press the Green button to wake.';
 async function wakeOk(){
   // Verify the device is reachable; if it's asleep, tell the user it's not ready.
   try{
@@ -422,6 +441,12 @@ setInterval(()=>{
   if(sleepRemain===1 && !userSleeping){
     sModal.classList.remove('on');
     wMsg.textContent=WAKE_MSG;
+    wBox.classList.add('on');
+  }
+  // At 00:00 the device has slept: keep the box, switch to the asleep message.
+  if(sleepRemain===0 && !userSleeping){
+    sModal.classList.remove('on');
+    wMsg.textContent=ASLEEP_MSG;
     wBox.classList.add('on');
   }
 },1000);

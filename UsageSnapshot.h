@@ -77,6 +77,8 @@ struct ProviderQuota {
   uint8_t platCount = 0;              // populated entries in platModels
   struct PlatModel { char name[20] = {0}; double tokens = 0.0; double cents = 0.0; };
   PlatModel platModels[5];            // top models by cost
+  int    platWindowDays = 30;         // active cost/usage window (30 in prepaid mode)
+  bool   platSpendMode = false;       // false = prepaid-remaining, true = spend-window
 
   LocalProviderStats local;
 

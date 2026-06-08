@@ -41,6 +41,8 @@ class ConfigStore {
   const String& claudePlatOrg() const  { return cp_org_; }
   const String& claudePlatPrepaid() const { return cp_prepaid_; }
   const String& claudePlatTopup() const   { return cp_topup_; }
+  const String& claudePlatMode() const     { return cp_mode_; }      // "prepaid" | "spend"
+  const String& claudePlatSpendWin() const { return cp_spendwin_; }  // "7" | "14" | "30"
   const String& localStatsUrl() const  { return ls_url_; }
 
   void setLeftProvider(uint8_t v)        { leftProv_ = v; }
@@ -69,6 +71,8 @@ class ConfigStore {
   void setClaudePlatOrg(const String& v) { cp_org_ = v; }
   void setClaudePlatPrepaid(const String& v) { cp_prepaid_ = v; }
   void setClaudePlatTopup(const String& v)   { cp_topup_ = v; }
+  void setClaudePlatMode(const String& v)     { cp_mode_ = v; }
+  void setClaudePlatSpendWin(const String& v) { cp_spendwin_ = v; }
   void setLocalStatsUrl(const String& v) { ls_url_ = v; }
 
   String toJson() const;
@@ -98,6 +102,8 @@ class ConfigStore {
   String za_ep_ = "https://api.z.ai";
   String cp_key_, cp_org_;
   String cp_prepaid_, cp_topup_;
+  String cp_mode_     = "prepaid";   // device shows prepaid-remaining vs spend-window
+  String cp_spendwin_ = "30";        // 7 | 14 | 30 day cost when in spend mode
   String ls_url_;
 };
 

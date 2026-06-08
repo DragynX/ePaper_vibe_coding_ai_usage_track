@@ -48,10 +48,15 @@ bool ClaudePlatformUsageClient::fetch(long nowEpoch, ProviderQuota& out) {
     return false;
   }
 
+  // Prepaid mode always reports the 30-day cost (remaining = prepaid - 30d cost);
+  // spend mode reports the user-chosen 7/14/30-day window.
+  const int win = spendMode_ ? windowDays_ : 30;
+  const String limitStr = String("&limit=") + String(win + 1);   // <=win daily buckets
+
   char startBuf[21], endBuf[21];
-  fmtIso(nowEpoch - 30L * 24 * 3600, startBuf);   // 30-day window (<=31 daily buckets)
+  fmtIso(nowEpoch - (long)win * 24 * 3600, startBuf);
   fmtIso(nowEpoch, endBuf);
-  sysLog("[claudeplat] fetch 30d %s..%s", startBuf, endBuf);
+  sysLog("[claudeplat] fetch %dd %s..%s", win, startBuf, endBuf);
 
   const HttpHeader extra[] = {
     { "x-api-key",         adminKey_.c_str() },
@@ -62,8 +67,8 @@ bool ClaudePlatformUsageClient::fetch(long nowEpoch, ProviderQuota& out) {
   // --- Usage report: tokens per model -------------------------------------
   String usageUrl = String("https://api.anthropic.com/v1/organizations/usage_report/messages"
                            "?starting_at=") + startBuf + "&ending_at=" + endBuf +
-                    "&group_by[]=model&bucket_width=1d&limit=31";   // 1d defaults to
-  // only 7 buckets; a 30-day range without limit returns the oldest 7 (empty).
+                    "&group_by[]=model&bucket_width=1d" + limitStr;   // 1d defaults to
+  // only 7 buckets; a wider range without limit returns the oldest 7 (empty).
   HttpResult ur = http_->get(usageUrl, extra, 3, nullptr, 0, "UsageMonitor/1.4");
   if (ur.status != 200) {
     sysLog("[claudeplat/usage] status %d", ur.status);
@@ -108,7 +113,7 @@ bool ClaudePlatformUsageClient::fetch(long nowEpoch, ProviderQuota& out) {
   // --- Cost report: USD cents per model -----------------------------------
   String costUrl = String("https://api.anthropic.com/v1/organizations/cost_report"
                           "?starting_at=") + startBuf + "&ending_at=" + endBuf +
-                   "&group_by[]=description&bucket_width=1d&limit=31";   // all 30 days
+                   "&group_by[]=description&bucket_width=1d" + limitStr;   // all win days
   HttpResult cr = http_->get(costUrl, extra, 3, nullptr, 0, "UsageMonitor/1.4");
   if (cr.status == 200) {
     JsonDocument doc;
@@ -137,34 +142,12 @@ bool ClaudePlatformUsageClient::fetch(long nowEpoch, ProviderQuota& out) {
     sysLog("[claudeplat/cost] status %d (tokens still shown)", cr.status);
   }
 
-  // --- Spend since the top-up date -> $ left ------------------------------
-  if (prepaidCents_ > 0 && topupEpoch_ > 0) {
-    char topupBuf[21];
-    fmtIso(topupEpoch_, topupBuf);
-    String sinceUrl = String("https://api.anthropic.com/v1/organizations/cost_report"
-                             "?starting_at=") + topupBuf + "&ending_at=" + endBuf +
-                      "&bucket_width=1d&limit=31";
-    HttpResult sr = http_->get(sinceUrl, extra, 3, nullptr, 0, "UsageMonitor/1.4");
-    if (sr.status == 200) {
-      JsonDocument doc;
-      if (!deserializeJson(doc, sr.body)) {
-        double spent = 0;
-        JsonArray data = doc["data"];
-        if (!data.isNull()) {
-          for (JsonVariant bucket : data) {
-            JsonVariant results = bucket["results"];
-            JsonArray rows = results.isNull() ? JsonArray() : results.as<JsonArray>();
-            for (JsonVariant row : rows) spent += atof(row["amount"] | "0");
-          }
-        }
-        out.spentSinceTopupCents = spent;
-        out.prepaidCents = prepaidCents_;
-        out.leftCents = prepaidCents_ - spent;
-        out.hasLeft = true;
-      }
-    } else {
-      sysLog("[claudeplat/since] status %d", sr.status);
-    }
+  // --- Prepaid mode: $ remaining = prepaid - 30-day cost ------------------
+  // (win is forced to 30 in prepaid mode, so out.costCents is the 30-day cost.)
+  if (!spendMode_ && prepaidCents_ > 0 && out.hasCost) {
+    out.prepaidCents = prepaidCents_;
+    out.leftCents    = prepaidCents_ - out.costCents;   // can go negative
+    out.hasLeft      = true;
   }
 
   // Sort top models by cost (simple insertion sort on the small array).
@@ -177,10 +160,13 @@ bool ClaudePlatformUsageClient::fetch(long nowEpoch, ProviderQuota& out) {
     out.platModels[j + 1] = key;
   }
 
+  out.platWindowDays = win;
+  out.platSpendMode  = spendMode_;
   out.ok = true;
   out.lastSuccessEpoch = nowEpoch;
-  sysLog("[claudeplat] ok tokens=%.0f cost=%.0f cents models=%d",
-         out.balance, out.costCents, (int)out.platCount);
+  sysLog("[claudeplat] ok %dd tokens=%.0f cost=%.0f cents left=%.0f models=%d",
+         win, out.balance, out.costCents, out.hasLeft ? out.leftCents : 0.0,
+         (int)out.platCount);
   return true;
 }
 

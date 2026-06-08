@@ -27,6 +27,7 @@ struct UiStatus {
   long   nextFetchEpoch = 0;   // lastFetch + refresh interval
   float  batteryDays = -2.0f;  // >=0 estimated days left (only shown when discharging)
   bool   batteryCharging = false;  // on external/USB power -> show "Charging" not days
+  bool   deepSleepOn = false;  // deep sleep enabled -> draw moon in header
 };
 
 class UsageUI {
