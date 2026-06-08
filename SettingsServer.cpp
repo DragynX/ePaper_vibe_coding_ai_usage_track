@@ -361,10 +361,17 @@ async function loadSt(){
     const d=await fetch('/api/status').then(r=>r.json());
     const up=d.uptime_sec|0;
     const h=Math.floor(up/3600),m=Math.floor((up%3600)/60),s=up%60;
+    const str=(r)=>(r==null||r===0)?'?':(r>=-60?'High':(r>=-72?'Med':'Low'));
+    let battStr='?';
+    if(d.batt!=null&&d.batt>=0){
+      battStr=d.batt+'% | '+(d.batt_mv>=0?d.batt_mv:'?')+'mv';
+      if(d.batt_days!=null&&d.batt_days>=0)
+        battStr+=' | Est. '+Math.floor(d.batt_days/24)+' days '+(d.batt_days%24)+' hours on battery';
+    }
     const rows=[
       ['IP Address',d.ip??'?'],
-      ['WiFi SSID',d.ssid??'?'],
-      ['Battery',(d.batt!=null&&d.batt>=0)?(d.batt+'% | '+(d.batt_mv>=0?d.batt_mv:'?')+'mv'):'?'],
+      ['WiFi',(d.ssid??'?')+' | '+str(d.rssi)],
+      ['Battery',battStr],
       ['Uptime',h+'h '+m+'m '+s+'s'],
       ['LEFT',PNAMES[d.left_prov??0]??'?'],
       ['RIGHT',PNAMES[d.right_prov??0]??'?'],
@@ -388,7 +395,7 @@ function applyCred(st){
     PROV_FIELDS[p].forEach(id=>{const el=document.getElementById(id);if(el)el.style.background=CRED_BG[k]??'';});
     const sm=document.getElementById(SUMMARY[p]);if(sm)sm.style.background=HDR_BG[k]??'';
     // Clear Token only when a token exists (green/red); hidden when white.
-    const btn=document.getElementById('clr_'+p);if(btn)btn.style.display=(k==='ok'||k==='fail')?'':'none';
+    const btn=document.getElementById('clr_'+p);if(btn)btn.style.display=(k==='ok'||k==='fail')?'inline-block':'none';
   }
 }
 async function pollCred(){try{applyCred(await fetch('/api/credstatus',{cache:'no-store'}).then(r=>r.json()));}catch(e){}}
@@ -530,10 +537,12 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
                            std::function<void()> onSleepNow,
                            std::function<int()> sleepInSec,
                            std::function<int()> bootId,
-                           int (*battMv)()) {
+                           int (*battMv)(),
+                           std::function<int()> battDays) {
   cfg_ = cfg;
   battPct_ = battPct;
   battMv_ = battMv;
+  battDays_ = battDays;
   onSaved_ = onSaved;
   credJson_ = credJson;
   onKeepAlive_ = onKeepAlive;
@@ -635,10 +644,14 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
     const int battMv = battMv_ ? battMv_() : -1;
     const int sleepIn = sleepInSec_ ? sleepInSec_() : -1;  // passive: does NOT extend
     const int boot = bootId_ ? bootId_() : 0;
+    const int rssi = WiFi.isConnected() ? WiFi.RSSI() : 0;
+    const int battDays = battDays_ ? battDays_() : -1;   // est hours on battery, -1 = n/a
     String json = "{\"ip\":\"" + ip + "\","
                   "\"ssid\":\"" + ssid + "\","
+                  "\"rssi\":" + String(rssi) + ","
                   "\"batt\":" + String(batt) + ","
                   "\"batt_mv\":" + String(battMv) + ","
+                  "\"batt_days\":" + String(battDays) + ","
                   "\"sleep_in\":" + String(sleepIn) + ","
                   "\"boot_id\":" + String(boot) + ","
                   "\"uptime_sec\":" + String(up) + ","

@@ -19,12 +19,14 @@ class SettingsServer {
              std::function<void()> onSleepNow = nullptr,
              std::function<int()> sleepInSec = nullptr,
              std::function<int()> bootId = nullptr,
-             int (*battMv)() = nullptr);
+             int (*battMv)() = nullptr,
+             std::function<int()> battDays = nullptr);
 
  private:
   ConfigStore* cfg_ = nullptr;
   int (*battPct_)() = nullptr;
   int (*battMv_)() = nullptr;
+  std::function<int()> battDays_;   // est hours on battery, -1 = n/a
   std::function<void()> onSaved_;
   std::function<String()> credJson_;
   std::function<void()> onKeepAlive_;

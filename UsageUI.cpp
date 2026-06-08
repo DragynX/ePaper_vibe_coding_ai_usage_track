@@ -306,11 +306,16 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     renderer_.drawTextFace(title, margin, headerMiddleY,
                            TextFace::SansBold24, TextAlign::MiddleLeft, kText, kBg);
   } else {
+    // App name inside a pill; version (smaller, raster) bottom-aligned past the pill.
+    const int nameW = renderer_.measureTextFace(appName, TextFace::SansBold9);
+    const int padX = 6, padY = 2, nameH = 13;
+    const int pillX = margin - padX, pillY = topY - padY;
+    const int pillW = nameW + 2 * padX, pillH = nameH + 2 * padY;
+    display_.drawRoundRect(pillX, pillY, pillW, pillH, pillH / 2, kText);
     renderer_.drawTextFace(appName, margin, topY,
                            TextFace::SansBold9, TextAlign::TopLeft, kText, kBg);
-    const int nameW = renderer_.measureTextFace(appName, TextFace::SansBold9);
-    renderer_.drawText(UM_VERSION, margin + nameW + 4, topY + 4, 1,
-                       TextAlign::TopLeft, kText, kBg);
+    renderer_.drawText(UM_VERSION, pillX + pillW + 8, topY + nameH, 1,
+                       TextAlign::BottomLeft, kText, kBg);
   }
 
   // Center: Last Fetch / Next Fetch times (local TZ) instead of a wall clock.
@@ -320,27 +325,31 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     struct tm lt; localtime_r(&t, &lt);
     snprintf(out, 8, "%02d:%02d", lt.tm_hour, lt.tm_min);
   };
-  char lastBuf[8], nextBuf[8], fetchBuf[48];
+  char lastBuf[8], nextBuf[8];
   hhmm(st.lastFetchEpoch, lastBuf);
   hhmm(st.nextFetchEpoch, nextBuf);
-  snprintf(fetchBuf, sizeof(fetchBuf), "Fetch:  Last %s Next %s", lastBuf, nextBuf);
   if (kIsLarge) {
+    char fetchBuf[48];
+    snprintf(fetchBuf, sizeof(fetchBuf), "Fetch:  Last %s Next %s", lastBuf, nextBuf);
     renderer_.drawTextFace(fetchBuf, w / 2, topY + 8, TextFace::SansBold18,
                            TextAlign::TopCenter, kText, kBg);
   } else {
-    const TextFace ff = TextFace::SansBold9;
-    renderer_.drawTextFace(fetchBuf, w / 2, topY, ff, TextAlign::TopCenter, kText, kBg);
-    // Moon = deep sleep enabled. 4 spaces past the right end of the centered text.
-    if (st.deepSleepOn) {
-      const int tw = renderer_.measureTextFace(fetchBuf, ff);
-      int gap = renderer_.measureTextFace("    ", ff);
-      if (gap < 10) gap = 10;
-      const int r = 6;
-      const int cx = w / 2 + tw / 2 + gap + r;
-      const int cy = topY + 7;
-      display_.fillCircle(cx, cy, r, kText);              // full disc
-      display_.fillCircle(cx + 3, cy - 2, r, kBg);        // carve the crescent
-    }
+    // Segmented so "Last"/"Next" render one size smaller (raster) than the times.
+    const TextFace big = TextFace::SansBold9;
+    const String s0 = "Fetch:  ", s1 = "Last ", s2 = String(lastBuf) + " ",
+                 s3 = "Next ",    s4 = nextBuf;
+    const int w0 = renderer_.measureTextFace(s0, big);
+    const int w1 = renderer_.measureText(s1, 1);
+    const int w2 = renderer_.measureTextFace(s2, big);
+    const int w3 = renderer_.measureText(s3, 1);
+    const int w4 = renderer_.measureTextFace(s4, big);
+    int sx = w / 2 - (w0 + w1 + w2 + w3 + w4) / 2;
+    const int by = topY + 13;   // common bottom baseline for mixed sizes
+    renderer_.drawTextFace(s0, sx, by, big, TextAlign::BottomLeft, kText, kBg); sx += w0;
+    renderer_.drawText    (s1, sx, by, 1,   TextAlign::BottomLeft, kText, kBg); sx += w1;
+    renderer_.drawTextFace(s2, sx, by, big, TextAlign::BottomLeft, kText, kBg); sx += w2;
+    renderer_.drawText    (s3, sx, by, 1,   TextAlign::BottomLeft, kText, kBg); sx += w3;
+    renderer_.drawTextFace(s4, sx, by, big, TextAlign::BottomLeft, kText, kBg);
   }
 
   // Right: refresh note + WiFi/battery icons.
@@ -362,8 +371,20 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     }
     display_.fillRect(margin, headerLineY, w - margin * 2, 2, kLine);
   } else {
-    drawWifiIcon(w - margin - wifiW, topY, wifiW, wifiH, st.wifiConnected, kText);
-    int leftEdge = w - margin - wifiW;
+    const int wifiX = w - margin - wifiW;
+    drawWifiIcon(wifiX, topY, wifiW, wifiH, st.wifiConnected, kText);
+    // Moon (deep sleep) sits between the battery and the wifi bars; battery + IP
+    // shift left by its slot to make room.
+    int moonSlot = 0;
+    if (st.deepSleepOn) {
+      const int moonR = 6, moonGap = 8;
+      const int mcx = wifiX - moonGap - moonR;
+      const int mcy = topY + wifiH / 2;
+      display_.fillCircle(mcx, mcy, moonR, kText);
+      display_.fillCircle(mcx + 3, mcy - 2, moonR, kBg);
+      moonSlot = moonGap + 2 * moonR;
+    }
+    int leftEdge = wifiX - moonSlot;
     // Battery beside the wifi bars; fill is proportional to charge.
     if (st.batteryPercent >= 0) {
       const int battW = 26, battH = 13;
@@ -509,46 +530,39 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
   int cy = y + 26;
   char buf[56];
 
-  // Primary big number.
-  //  Prepaid mode: remaining = prepaid - 30-day cost.
-  //  Spend mode:   the selected {7,14,30}-day cost.
+  // Primary big number + inline label (same line, just to the right).
+  //  Prepaid mode: remaining = prepaid - 30-day cost; Spend mode: window cost.
+  const char* label = nullptr;
+  char lblbuf[16];
+  bool dim = false;
   if (!spend) {
-    if (p.hasLeft) {
-      snprintf(buf, sizeof(buf), "$%.2f", p.leftCents / 100.0);
-      renderer_.drawTextFace(buf, x, cy, TextFace::SansBold24, TextAlign::TopLeft, kText, kBg);
-      renderer_.drawTextFace("estimated remaining", x + w, cy + 10, TextFace::Sans9,
-                             TextAlign::TopRight, kMuted, kBg);
-    } else if (p.hasCost) {
-      snprintf(buf, sizeof(buf), "$%.2f", p.costCents / 100.0);
-      renderer_.drawTextFace(buf, x, cy, TextFace::SansBold24, TextAlign::TopLeft, kText, kBg);
-      renderer_.drawTextFace("30-day cost", x + w, cy + 10, TextFace::Sans9,
-                             TextAlign::TopRight, kMuted, kBg);
-    } else {
-      renderer_.drawTextFace("$--", x, cy, TextFace::SansBold24, TextAlign::TopLeft, kMuted, kBg);
-    }
-    cy += 34;
-    if (p.prepaidCents > 0) {
-      snprintf(buf, sizeof(buf), "Prepaid amount: $%.2f", p.prepaidCents / 100.0);
-      renderer_.drawTextFace(buf, x, cy, TextFace::Sans9, TextAlign::TopLeft, kMuted, kBg);
-      cy += 16;
-    }
+    if (p.hasLeft)      { snprintf(buf, sizeof(buf), "$%.2f", p.leftCents / 100.0); label = "estimated remaining"; }
+    else if (p.hasCost) { snprintf(buf, sizeof(buf), "$%.2f", p.costCents / 100.0); label = "30-day cost"; }
+    else                { snprintf(buf, sizeof(buf), "$--"); dim = true; }
   } else {
-    if (p.hasCost) {
-      snprintf(buf, sizeof(buf), "$%.2f", p.costCents / 100.0);
-      renderer_.drawTextFace(buf, x, cy, TextFace::SansBold24, TextAlign::TopLeft, kText, kBg);
-      char lbl[16]; snprintf(lbl, sizeof(lbl), "%d-day cost", win);
-      renderer_.drawTextFace(lbl, x + w, cy + 10, TextFace::Sans9,
-                             TextAlign::TopRight, kMuted, kBg);
-    } else {
-      renderer_.drawTextFace("$--", x, cy, TextFace::SansBold24, TextAlign::TopLeft, kMuted, kBg);
-    }
-    cy += 34;
+    if (p.hasCost) { snprintf(buf, sizeof(buf), "$%.2f", p.costCents / 100.0);
+                     snprintf(lblbuf, sizeof(lblbuf), "%d-day cost", win); label = lblbuf; }
+    else           { snprintf(buf, sizeof(buf), "$--"); dim = true; }
   }
+  renderer_.drawTextFace(buf, x, cy, TextFace::SansBold24, TextAlign::TopLeft,
+                         dim ? kMuted : kText, kBg);
+  if (label) {
+    const int numW = renderer_.measureTextFace(buf, TextFace::SansBold24);
+    renderer_.drawTextFace(label, x + numW + 10, cy + 24, TextFace::Sans9,
+                           TextAlign::BottomLeft, kMuted, kBg);
+  }
+  cy += 36;
   display_.fillRect(x, cy, w, 1, kLine);
-  cy += 8;
+  cy += 12;
+  // Prepaid amount sits under the separator, above the models.
+  if (!spend && p.prepaidCents > 0) {
+    snprintf(buf, sizeof(buf), "Prepaid amount: $%.2f", p.prepaidCents / 100.0);
+    renderer_.drawTextFace(buf, x, cy, TextFace::Sans9, TextAlign::TopLeft, kMuted, kBg);
+    cy += 18;
+  }
 
   // Per-model spend bars (top models, already sorted by cost desc). Reserve the
-  // bottom ~74px for the token-usage line + the four report headers.
+  // bottom for the token-usage line + the four report headers.
   double maxCents = 0;
   for (uint8_t i = 0; i < p.platCount; ++i)
     if (p.platModels[i].cents > maxCents) maxCents = p.platModels[i].cents;
@@ -556,7 +570,7 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
   const int rowH = 26;
   const int labelW = 120;
   const int valW = 64;
-  const int reserveBottom = 74;
+  const int reserveBottom = 100;
   for (uint8_t i = 0; i < p.platCount && cy + rowH <= y + h - reserveBottom; ++i) {
     const ProviderQuota::PlatModel& m = p.platModels[i];
     const char* nm = m.name;
@@ -592,7 +606,7 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
   else snprintf(tkBuf, sizeof(tkBuf), "%.0f", tk);
   snprintf(buf, sizeof(buf), "%d day token usage: %s", win, tkBuf);
   renderer_.drawTextFace(buf, x, cy, TextFace::Sans9, TextAlign::TopLeft, kText, kBg);
-  cy += 15;
+  cy += 18;
 
   // Extra cost reports (placeholders this pass — real fetches to follow).
   static const char* const kReports[4] = {
@@ -601,10 +615,10 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
     "Rate limits: n/a",
     "Claude Code analytics: n/a",
   };
-  for (int i = 0; i < 4 && cy + 12 <= y + h; ++i) {
+  for (int i = 0; i < 4 && cy + 14 <= y + h; ++i) {
     renderer_.drawTextFace(kReports[i], x, cy, TextFace::Sans9,
                            TextAlign::TopLeft, kMuted, kBg);
-    cy += 13;
+    cy += 16;
   }
 }
 

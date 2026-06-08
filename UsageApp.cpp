@@ -413,7 +413,12 @@ void UsageApp::begin() {
                   [this]() { sleepNow_ = true; sysLog("[sleep] sleep-now requested (web)"); },
                   [this]() { return sleepInSec(); },         // seconds until sleep
                   [this]() { return (int)bootId(); },        // session token (wake count)
-                  &readBatteryMv);                           // actual battery mV
+                  &readBatteryMv,                            // actual battery mV
+                  [this]() -> int {                          // est hours on battery, -1 = n/a
+                    if (!cfgStore_.deepSleepEnabled()) return -1;
+                    const float d = battery_tracker_get_days_remaining(cfgStore_.refreshSec());
+                    return d >= 0.0f ? (int)(d * 24.0f + 0.5f) : -1;
+                  });
   server_.begin();
   sysLog("[settings] http://usagemonitor.local or http://%s",
          WiFi.localIP().toString().c_str());
