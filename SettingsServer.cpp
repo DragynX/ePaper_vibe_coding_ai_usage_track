@@ -306,6 +306,7 @@ async function doSave(){
     if(r.ok){
       if(curTab===0){setMsg('Saved! Testing tokens…','green');pollCredFor(30000);}
       else setMsg('Saved!','green');
+      pollSleep();   // the save extended the window; refresh the countdown now
     }
     else setMsg('Error '+r.status,'red');
   }catch(e){setMsg('Failed','red');}
@@ -381,7 +382,7 @@ async function clearProv(ev,id){
   }catch(e){setMsg('Failed','red');}
 }
 function pollCredFor(ms){const end=Date.now()+ms;const t=setInterval(()=>{pollCred();if(Date.now()>end)clearInterval(t);},2000);}
-fetch('/api/settings').then(r=>r.json()).then(populate).catch(console.error);
+fetch('/api/settings',{cache:'no-store'}).then(r=>r.json()).then(populate).catch(console.error);
 pollCred();
 
 // Sleep-warning modal + countdown: passively poll sleep_in (does NOT keep the
@@ -406,15 +407,28 @@ async function sleepNow(){
   userSleeping=true;sModal.classList.remove('on');sleepRemain=0;renderTimer();
   setMsg('Sleeping…','#888');
 }
+let wasOnline=true;   // device reachability; false while it's asleep/unreachable
 async function pollSleep(){
-  if(userSleeping){sModal.classList.remove('on');sleepRemain=0;renderTimer();return;}
+  // While the user has chosen Sleep AND the device is still reachable (hasn't
+  // dropped yet), keep the modal hidden and the timer at 0.
+  if(userSleeping && wasOnline){sModal.classList.remove('on');sleepRemain=0;renderTimer();return;}
   try{
     const d=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());
+    if(!wasOnline){
+      // Device just came back from sleep — resync the whole page and re-enable
+      // the timer/modal (clears any latched Sleep choice).
+      wasOnline=true;userSleeping=false;
+      fetch('/api/settings',{cache:'no-store'}).then(r=>r.json()).then(populate).catch(()=>{});
+      pollCred();
+    }
     const s=d.sleep_in;
     sleepRemain=(s==null)?-1:s;renderTimer();
     if(s!=null && s>=0 && s<=30){sCd.textContent=s;sModal.classList.add('on');}
     else sModal.classList.remove('on');
-  }catch(e){}
+  }catch(e){
+    wasOnline=false;   // unreachable -> asleep; timer holds at 00:00
+    sleepRemain=0;renderTimer();sModal.classList.remove('on');
+  }
 }
 setInterval(pollSleep,5000);pollSleep();
 </script>
@@ -443,6 +457,16 @@ static String jsonEscape(const String& in) {
   return out;
 }
 
+// Send a response with caching fully disabled, so an open tab / bfcache / proxy
+// never serves stale state (settings, status, credential colors all change live).
+static void sendNoCache(AsyncWebServerRequest* req, int code, const char* type,
+                        const String& body) {
+  AsyncWebServerResponse* res = req->beginResponse(code, type, body);
+  res->addHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  res->addHeader("Pragma", "no-cache");
+  req->send(res);
+}
+
 void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battPct)(),
                            std::function<void()> onSaved,
                            std::function<String()> credJson,
@@ -459,12 +483,12 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
 
   // GET / → settings page
   server->on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
-    req->send(200, "text/html", kHtml);
+    sendNoCache(req, 200, "text/html", kHtml);
   });
 
   // GET /api/settings → JSON
   server->on("/api/settings", HTTP_GET, [this](AsyncWebServerRequest* req) {
-    req->send(200, "application/json", cfg_->toJson());
+    sendNoCache(req, 200, "application/json", cfg_->toJson());
   });
 
   // POST /api/settings → update + save
@@ -472,15 +496,16 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
     [this](AsyncWebServerRequest* req) {
       String* body = reinterpret_cast<String*>(req->_tempObject);
       if (!body) {  // oversize/aborted body was dropped by the upload handler
-        req->send(413, "application/json", "{\"ok\":false,\"error\":\"too_large\"}");
+        sendNoCache(req, 413, "application/json", "{\"ok\":false,\"error\":\"too_large\"}");
         return;
       }
       if (cfg_->fromJson(*body)) {
         cfg_->save();
-        if (onSaved_) onSaved_();   // e.g. apply dark mode + repaint (async-safe flag)
-        req->send(200, "application/json", "{\"ok\":true}");
+        if (onSaved_)    onSaved_();      // apply changes + repaint (async-safe flag)
+        if (onKeepAlive_) onKeepAlive_(); // a save is a user action -> extend NOW
+        sendNoCache(req, 200, "application/json", "{\"ok\":true}");
       } else {
-        req->send(400, "application/json", "{\"ok\":false,\"error\":\"parse\"}");
+        sendNoCache(req, 400, "application/json", "{\"ok\":false,\"error\":\"parse\"}");
       }
       delete body; req->_tempObject = nullptr;
     },
@@ -508,19 +533,19 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
 
   // GET /api/credstatus → per-provider credential test status
   server->on("/api/credstatus", HTTP_GET, [this](AsyncWebServerRequest* req) {
-    req->send(200, "application/json", credJson_ ? credJson_() : "{}");
+    sendNoCache(req, 200, "application/json", credJson_ ? credJson_() : "{}");
   });
 
   // POST /api/keepalive → user chose Continue Session: keep awake 2 minutes
   server->on("/api/keepalive", HTTP_POST, [this](AsyncWebServerRequest* req) {
     if (onKeepAlive_) onKeepAlive_();
-    req->send(200, "application/json", "{\"ok\":true}");
+    sendNoCache(req, 200, "application/json", "{\"ok\":true}");
   });
 
   // POST /api/sleepnow → user chose Sleep: enter deep sleep now
   server->on("/api/sleepnow", HTTP_POST, [this](AsyncWebServerRequest* req) {
     if (onSleepNow_) onSleepNow_();
-    req->send(200, "application/json", "{\"ok\":true}");
+    sendNoCache(req, 200, "application/json", "{\"ok\":true}");
   });
 
   // POST /api/clearprovider?prov=N → wipe that provider's credentials
@@ -528,13 +553,14 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
     int prov = 0;
     if (req->hasParam("prov")) prov = req->getParam("prov")->value().toInt();
     if (prov < 1 || prov > 7) {
-      req->send(400, "application/json", "{\"ok\":false,\"error\":\"prov\"}");
+      sendNoCache(req, 400, "application/json", "{\"ok\":false,\"error\":\"prov\"}");
       return;
     }
     cfg_->clearProvider((uint8_t)prov);
     cfg_->save();
-    if (onSaved_) onSaved_();   // re-wire providers + repaint (clears cache, status)
-    req->send(200, "application/json", "{\"ok\":true}");
+    if (onSaved_)     onSaved_();    // re-wire providers + repaint (clears cache, status)
+    if (onKeepAlive_) onKeepAlive_();
+    sendNoCache(req, 200, "application/json", "{\"ok\":true}");
   });
 
   // GET /api/status → live info
@@ -551,19 +577,19 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
                   "\"uptime_sec\":" + String(up) + ","
                   "\"left_prov\":"  + String(cfg_->leftProvider()) + ","
                   "\"right_prov\":" + String(cfg_->rightProvider()) + "}";
-    req->send(200, "application/json", json);
+    sendNoCache(req, 200, "application/json", json);
   });
 
   // POST /api/restart
   server->on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* req) {
-    req->send(200, "application/json", "{\"ok\":true}");
+    sendNoCache(req, 200, "application/json", "{\"ok\":true}");
     delay(200);
     ESP.restart();
   });
 
   // POST /api/wifi-reset → erase stored credentials + restart
   server->on("/api/wifi-reset", HTTP_POST, [](AsyncWebServerRequest* req) {
-    req->send(200, "application/json", "{\"ok\":true}");
+    sendNoCache(req, 200, "application/json", "{\"ok\":true}");
     delay(200);
     WiFi.disconnect(true, true);  // wifioff=true, eraseap=true
     delay(100);
