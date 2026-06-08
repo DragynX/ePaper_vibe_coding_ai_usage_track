@@ -2,7 +2,7 @@
 // Arduino IDE build config for E1001.
 // Provider selection is now runtime via the settings web UI — no reflash needed.
 
-#define UM_VERSION "1.7.0"
+#define UM_VERSION "1.7.1"
 
 #ifndef BOARD_HAS_PSRAM
 #define BOARD_HAS_PSRAM

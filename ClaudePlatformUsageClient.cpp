@@ -62,7 +62,8 @@ bool ClaudePlatformUsageClient::fetch(long nowEpoch, ProviderQuota& out) {
   // --- Usage report: tokens per model -------------------------------------
   String usageUrl = String("https://api.anthropic.com/v1/organizations/usage_report/messages"
                            "?starting_at=") + startBuf + "&ending_at=" + endBuf +
-                    "&group_by[]=model&bucket_width=1d";
+                    "&group_by[]=model&bucket_width=1d&limit=31";   // 1d defaults to
+  // only 7 buckets; a 30-day range without limit returns the oldest 7 (empty).
   HttpResult ur = http_->get(usageUrl, extra, 3, nullptr, 0, "UsageMonitor/1.4");
   if (ur.status != 200) {
     sysLog("[claudeplat/usage] status %d", ur.status);
@@ -107,7 +108,7 @@ bool ClaudePlatformUsageClient::fetch(long nowEpoch, ProviderQuota& out) {
   // --- Cost report: USD cents per model -----------------------------------
   String costUrl = String("https://api.anthropic.com/v1/organizations/cost_report"
                           "?starting_at=") + startBuf + "&ending_at=" + endBuf +
-                   "&group_by[]=description&bucket_width=1d";
+                   "&group_by[]=description&bucket_width=1d&limit=31";   // all 30 days
   HttpResult cr = http_->get(costUrl, extra, 3, nullptr, 0, "UsageMonitor/1.4");
   if (cr.status == 200) {
     JsonDocument doc;
