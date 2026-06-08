@@ -211,6 +211,11 @@ R"rawhtml(
   </div>
 </div></div>
 
+<div id="wakeBox" class="modal"><div class="box" style="border:2px solid #2a7">
+  <p id="wakeMsg" style="color:#176">Press Green button on device to wake up and access this page.</p>
+  <div class="row"><button class="btn save" onclick="wakeOk()">OK</button></div>
+</div></div>
+
 <script>
 const NPANE=4;
 let curTab=0;
@@ -390,6 +395,17 @@ pollCred();
 const sModal=document.getElementById('sleepModal');
 const sCd=document.getElementById('sleepCd');
 const sTimer=document.getElementById('sleepTimer');
+const wBox=document.getElementById('wakeBox');
+const wMsg=document.getElementById('wakeMsg');
+const WAKE_MSG='Press Green button on device to wake up and access this page.';
+async function wakeOk(){
+  // Verify the device is reachable; if it's asleep, tell the user it's not ready.
+  try{
+    const r=await fetch('/api/status',{cache:'no-store'});
+    if(r.ok){wBox.classList.remove('on');resync();}
+    else{wMsg.textContent='Device not ready';}
+  }catch(e){wMsg.textContent='Device not ready';}
+}
 let sleepRemain=-1;       // seconds until sleep (-1 = deep sleep off)
 let userSleeping=false;   // user pressed Sleep -> never re-show modal
 function renderTimer(){
@@ -397,10 +413,21 @@ function renderTimer(){
   const s=Math.max(0,sleepRemain|0);
   sTimer.textContent='Sleep in '+String((s/60)|0).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
 }
-setInterval(()=>{if(sleepRemain>0)sleepRemain--;renderTimer();},1000);
+setInterval(()=>{
+  if(sleepRemain>0)sleepRemain--;
+  renderTimer();
+  // At 00:01 (about to sleep) show the green "press button" box; hide the
+  // Continue/Sleep modal. The box stays up while the device is asleep and is
+  // cleared on the next wake (boot_id change).
+  if(sleepRemain===1 && !userSleeping){
+    sModal.classList.remove('on');
+    wMsg.textContent=WAKE_MSG;
+    wBox.classList.add('on');
+  }
+},1000);
 async function keepAlive(){
   try{await fetch('/api/keepalive',{method:'POST'});}catch(e){}
-  userSleeping=false;sModal.classList.remove('on');pollSleep();
+  userSleeping=false;sModal.classList.remove('on');wBox.classList.remove('on');pollSleep();
 }
 async function sleepNow(){
   try{await fetch('/api/sleepnow',{method:'POST'});}catch(e){}
@@ -421,7 +448,7 @@ async function pollSleep(){
     // stale counters/cache, resync, and (if this tab is visible) keep it awake.
     const woke=(bootId!==null && d.boot_id!==bootId);
     if(woke || !wasOnline){
-      wasOnline=true;userSleeping=false;resync();
+      wasOnline=true;userSleeping=false;wBox.classList.remove('on');resync();
       if(woke && document.visibilityState==='visible')keepAlive();  // auto 2-min
     }
     bootId=d.boot_id;

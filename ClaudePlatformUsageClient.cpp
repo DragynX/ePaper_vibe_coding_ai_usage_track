@@ -49,9 +49,9 @@ bool ClaudePlatformUsageClient::fetch(long nowEpoch, ProviderQuota& out) {
   }
 
   char startBuf[21], endBuf[21];
-  fmtIso(nowEpoch - 7L * 24 * 3600, startBuf);
+  fmtIso(nowEpoch - 30L * 24 * 3600, startBuf);   // 30-day window (<=31 daily buckets)
   fmtIso(nowEpoch, endBuf);
-  sysLog("[claudeplat] fetch start %s..%s", startBuf, endBuf);
+  sysLog("[claudeplat] fetch 30d %s..%s", startBuf, endBuf);
 
   const HttpHeader extra[] = {
     { "x-api-key",         adminKey_.c_str() },

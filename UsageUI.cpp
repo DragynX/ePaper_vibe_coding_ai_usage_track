@@ -353,8 +353,16 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     if (st.batteryPercent >= 0) {
       const int battW = 26, battH = 13;
       const int battX = leftEdge - battW - 10;
-      drawBatteryIcon(battX, topY + (wifiH - battH) / 2 + 4, battW, battH,
-                      st.batteryPercent, kText);
+      const int battY = topY + (wifiH - battH) / 2 + 4;
+      drawBatteryIcon(battX, battY, battW, battH, st.batteryPercent, kText);
+      // Battery runtime estimate just below the icon (right-aligned to it).
+      if (st.batteryDays >= 0.0f || st.batteryDays == -1.0f) {
+        char dbuf[20];
+        if (st.batteryDays >= 0.0f) snprintf(dbuf, sizeof(dbuf), "~%.1f days", st.batteryDays);
+        else                        snprintf(dbuf, sizeof(dbuf), "Calibrating...");
+        renderer_.drawTextFace(dbuf, battX + battW + 3, battY + battH + 3,
+                               TextFace::Sans9, TextAlign::TopRight, kMuted, kBg);
+      }
       leftEdge = battX - 3;   // 3px nub drawn past battW
     }
     if (st.ipAddress.length() > 0 && st.ipAddress != "0.0.0.0") {
@@ -493,7 +501,7 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
   } else if (p.hasCost) {
     snprintf(buf, sizeof(buf), "$%.2f", p.costCents / 100.0);
     renderer_.drawTextFace(buf, x, cy, TextFace::SansBold24, TextAlign::TopLeft, kText, kBg);
-    renderer_.drawTextFace("7-day cost", x + w, cy + 10, TextFace::Sans9,
+    renderer_.drawTextFace("30-day cost", x + w, cy + 10, TextFace::Sans9,
                            TextAlign::TopRight, kMuted, kBg);
   } else {
     renderer_.drawTextFace("$--", x, cy, TextFace::SansBold24, TextAlign::TopLeft, kMuted, kBg);
@@ -543,7 +551,7 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
   else if (tk >= 1e6) snprintf(tkBuf, sizeof(tkBuf), "%.1fM", tk / 1e6);
   else if (tk >= 1e3) snprintf(tkBuf, sizeof(tkBuf), "%.1fK", tk / 1e3);
   else snprintf(tkBuf, sizeof(tkBuf), "%.0f", tk);
-  snprintf(buf, sizeof(buf), "7d cost $%.2f  -  7d tokens %s", p.costCents / 100.0, tkBuf);
+  snprintf(buf, sizeof(buf), "30d cost $%.2f  -  30d tokens %s", p.costCents / 100.0, tkBuf);
   renderer_.drawTextFace(buf, x, y + h - 16, TextFace::Sans9,
                          TextAlign::TopLeft, kMuted, kBg);
 }

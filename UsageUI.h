@@ -25,6 +25,7 @@ struct UiStatus {
   String ipAddress;
   long   lastFetchEpoch = 0;   // when the last refresh completed (local epoch)
   long   nextFetchEpoch = 0;   // lastFetch + refresh interval
+  float  batteryDays = -2.0f;  // -2 hide, -1 calibrating, >=0 estimated days left
 };
 
 class UsageUI {

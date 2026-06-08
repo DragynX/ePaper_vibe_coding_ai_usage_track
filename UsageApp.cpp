@@ -13,6 +13,7 @@
 
 #include "AppLog.h"
 #include "BatteryMath.h"
+#include "battery_tracker.h"
 #include "DragynESPAsyncWiFiManager.h"
 #include "IsoTime.h"
 #include "UiLang.h"
@@ -520,6 +521,16 @@ void UsageApp::enterDeepSleep() {
   esp_wifi_stop();
   esp_wifi_deinit();
 
+  // 3b. Battery-runtime tracker: read SOC now — after WiFi is fully off (clean
+  //     ADC) and >=10 s since wake (Seeed timing rule). Update the estimate.
+  if (millis() < 10000UL) delay(10000UL - millis());
+  const float soc = (float)readBatteryPercent();   // existing reader — unchanged
+  const bool btnWake = (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT1);
+  battery_tracker_update(soc, btnWake);
+  sysLog("[batt] cycle=%u btnwakes=%u soc=%.0f days=%.1f",
+         battery_tracker_get_cycles(), battery_tracker_get_button_wakes(), soc,
+         battery_tracker_get_days_remaining(sec));
+
   // 4. Park the LED off and hold the pin so it doesn't float during sleep.
   digitalWrite(UM_LED_PIN, HIGH);   // active-low: HIGH = off
   gpio_hold_en((gpio_num_t)UM_LED_PIN);
@@ -581,6 +592,10 @@ UiStatus UsageApp::currentStatus() {
   s.lastFetchEpoch = lastFetchEpoch_;
   s.nextFetchEpoch = lastFetchEpoch_ > 0
       ? lastFetchEpoch_ + (long)cfgStore_.refreshSec() : 0;
+  // Battery days-remaining: only meaningful in deep-sleep mode (timer wakes are
+  // the cycles). -2 hides it; -1 = calibrating; >=0 = estimate.
+  s.batteryDays = cfgStore_.deepSleepEnabled()
+      ? battery_tracker_get_days_remaining(cfgStore_.refreshSec()) : -2.0f;
   return s;
 }
 
