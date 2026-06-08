@@ -355,12 +355,18 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
       const int battX = leftEdge - battW - 10;
       const int battY = topY + (wifiH - battH) / 2 + 4;
       drawBatteryIcon(battX, battY, battW, battH, st.batteryPercent, kText);
-      // Battery runtime estimate just below the icon (right-aligned to it).
-      if (st.batteryDays >= 0.0f || st.batteryDays == -1.0f) {
-        char dbuf[20];
-        if (st.batteryDays >= 0.0f) snprintf(dbuf, sizeof(dbuf), "~%.1f days", st.batteryDays);
-        else                        snprintf(dbuf, sizeof(dbuf), "Calibrating...");
-        renderer_.drawTextFace(dbuf, battX + battW + 3, battY + battH + 3,
+      // Below the icon (right-aligned): runtime estimate only when discharging;
+      // "Charging" when on USB/external power; nothing while still calibrating.
+      const char* battNote = nullptr;
+      char dbuf[20];
+      if (st.batteryDays >= 0.0f) {
+        snprintf(dbuf, sizeof(dbuf), "~%.1f days", st.batteryDays);
+        battNote = dbuf;
+      } else if (st.batteryCharging) {
+        battNote = "Charging";
+      }
+      if (battNote) {
+        renderer_.drawTextFace(battNote, battX + battW + 3, battY + battH + 3,
                                TextFace::Sans9, TextAlign::TopRight, kMuted, kBg);
       }
       leftEdge = battX - 3;   // 3px nub drawn past battW

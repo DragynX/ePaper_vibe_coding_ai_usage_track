@@ -592,10 +592,18 @@ UiStatus UsageApp::currentStatus() {
   s.lastFetchEpoch = lastFetchEpoch_;
   s.nextFetchEpoch = lastFetchEpoch_ > 0
       ? lastFetchEpoch_ + (long)cfgStore_.refreshSec() : 0;
-  // Battery days-remaining: only meaningful in deep-sleep mode (timer wakes are
-  // the cycles). -2 hides it; -1 = calibrating; >=0 = estimate.
-  s.batteryDays = cfgStore_.deepSleepEnabled()
-      ? battery_tracker_get_days_remaining(cfgStore_.refreshSec()) : -2.0f;
+  // Battery runtime estimate: only show days when the device is actively
+  // discharging (a real SOC drop measured over >=3 deep-sleep cycles). When on
+  // USB / external power show "Charging" instead. No reliable VBUS pin on E1001,
+  // so detect external power as: USB physically plugged (HWCDC) OR the tracker
+  // saw no SOC drop after several cycles (battery being held).
+  const bool deep = cfgStore_.deepSleepEnabled();
+  const float days = deep ? battery_tracker_get_days_remaining(cfgStore_.refreshSec())
+                          : -2.0f;
+  const uint32_t cyc = battery_tracker_get_cycles();
+  const bool draining = (days >= 0.0f);
+  s.batteryDays = days;
+  s.batteryCharging = !draining && (Serial.isPlugged() || (deep && cyc >= 3));
   return s;
 }
 
