@@ -18,11 +18,13 @@ class SettingsServer {
              std::function<void()> onKeepAlive = nullptr,
              std::function<void()> onSleepNow = nullptr,
              std::function<int()> sleepInSec = nullptr,
-             std::function<int()> bootId = nullptr);
+             std::function<int()> bootId = nullptr,
+             int (*battMv)() = nullptr);
 
  private:
   ConfigStore* cfg_ = nullptr;
   int (*battPct_)() = nullptr;
+  int (*battMv_)() = nullptr;
   std::function<void()> onSaved_;
   std::function<String()> credJson_;
   std::function<void()> onKeepAlive_;

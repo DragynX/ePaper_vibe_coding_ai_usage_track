@@ -341,7 +341,7 @@ async function loadSt(){
     const rows=[
       ['IP Address',d.ip??'?'],
       ['WiFi SSID',d.ssid??'?'],
-      ['Battery',(d.batt!=null&&d.batt>=0)?d.batt+'%':'?'],
+      ['Battery',(d.batt!=null&&d.batt>=0)?(d.batt+'% | '+(d.batt_mv>=0?d.batt_mv:'?')+'mv'):'?'],
       ['Uptime',h+'h '+m+'m '+s+'s'],
       ['LEFT',PNAMES[d.left_prov??0]??'?'],
       ['RIGHT',PNAMES[d.right_prov??0]??'?'],
@@ -477,9 +477,11 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
                            std::function<void()> onKeepAlive,
                            std::function<void()> onSleepNow,
                            std::function<int()> sleepInSec,
-                           std::function<int()> bootId) {
+                           std::function<int()> bootId,
+                           int (*battMv)()) {
   cfg_ = cfg;
   battPct_ = battPct;
+  battMv_ = battMv;
   onSaved_ = onSaved;
   credJson_ = credJson;
   onKeepAlive_ = onKeepAlive;
@@ -577,12 +579,14 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
     String ip   = jsonEscape(WiFi.localIP().toString());
     String ssid = jsonEscape(WiFi.SSID());
     unsigned long up = millis() / 1000UL;
-    const int batt = battPct_ ? battPct_() : -1;
+    const int batt = battPct_ ? battPct_() : -1;       // reads ADC, also sets mV
+    const int battMv = battMv_ ? battMv_() : -1;
     const int sleepIn = sleepInSec_ ? sleepInSec_() : -1;  // passive: does NOT extend
     const int boot = bootId_ ? bootId_() : 0;
     String json = "{\"ip\":\"" + ip + "\","
                   "\"ssid\":\"" + ssid + "\","
                   "\"batt\":" + String(batt) + ","
+                  "\"batt_mv\":" + String(battMv) + ","
                   "\"sleep_in\":" + String(sleepIn) + ","
                   "\"boot_id\":" + String(boot) + ","
                   "\"uptime_sec\":" + String(up) + ","

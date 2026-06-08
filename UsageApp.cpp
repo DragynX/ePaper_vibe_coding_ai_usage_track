@@ -60,6 +60,7 @@ static TeeStream logTee;
 // Set from ConfigStore so the static battery reader (a function pointer) can use
 // the user-configured 100% level.
 static uint16_t g_battFullMv = 4200;
+static int      g_battMv     = -1;   // last actual battery voltage (mV), -1 = unread
 
 // Battery: GPIO1 ADC behind a divider (halves the voltage), gated by GPIO21
 // (must be HIGH to read — Seeed reTerminal E series wiki).
@@ -70,8 +71,13 @@ static int readBatteryPercent() {
   uint32_t mv = 0;
   for (int i = 0; i < 16; ++i) mv += analogReadMilliVolts(1);
   digitalWrite(21, LOW);
-  return umBatteryPercent(static_cast<int>(mv / 16), g_battFullMv);
+  const int adcMv = static_cast<int>(mv / 16);
+  g_battMv = adcMv * 2;   // hardware halves the battery voltage
+  return umBatteryPercent(adcMv, g_battFullMv);
 }
+
+// Actual battery voltage (mV) from the most recent percent read.
+static int readBatteryMv() { return g_battMv; }
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -405,7 +411,8 @@ void UsageApp::begin() {
                   [this]() { extendAwake("web action"); },   // keepalive / clear / save
                   [this]() { sleepNow_ = true; sysLog("[sleep] sleep-now requested (web)"); },
                   [this]() { return sleepInSec(); },         // seconds until sleep
-                  [this]() { return (int)bootId(); });       // session token (wake count)
+                  [this]() { return (int)bootId(); },        // session token (wake count)
+                  &readBatteryMv);                           // actual battery mV
   server_.begin();
   sysLog("[settings] http://usagemonitor.local or http://%s",
          WiFi.localIP().toString().c_str());
