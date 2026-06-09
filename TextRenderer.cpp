@@ -96,10 +96,17 @@ namespace {
 OpenFontRender g_ofrReg;
 OpenFontRender g_ofrBold;
 EPaper* g_disp = nullptr;
-uint16_t g_ink = 0;
+uint16_t g_ink = 0;             // real panel gray index to paint glyph ink with
 
 // drawText() "size unit" (old setTextSize scale) -> OFR pixels.
 constexpr int UM_PX_PER_UNIT = 8;
+
+// We feed OFR pure white fg / black bg, so the color it hands the pixel hooks
+// encodes glyph coverage. Threshold that to crisp 1-bit (the GRAY4 panel mangles
+// real anti-aliasing): paint ink only where coverage clears the cutoff. The
+// green channel (6 bits, 0..63) is the luminance proxy. Lower = bolder strokes.
+constexpr uint8_t UM_OFR_THRESH = 30;   // ~45% coverage; tunable 20..40
+static inline bool ofrCovered(uint16_t c) { return ((c >> 5) & 0x3F) >= UM_OFR_THRESH; }
 
 // Pixel height per face. GRAY4 is crisp at these sizes; tuned on device.
 int facePx(TextFace f) {
@@ -151,7 +158,8 @@ void anchorTopLeft(TextAlign a, int& x, int& y, int w, int h) {
 
 void ofrDraw(OpenFontRender& ofr, const String& text, int x, int y, int px,
              TextAlign align, uint16_t color, uint16_t bg) {
-  g_ink = color;                       // solid-ink hooks paint this
+  (void)bg;
+  g_ink = color;                       // the gray index the threshold hooks paint
   ofr.setFontSize(static_cast<unsigned>(px));
   // "%s" wrapper: getTextWidth is printf-style; a literal '%' would be a format.
   const int w = static_cast<int>(ofr.getTextWidth("%s", text.c_str()));
@@ -160,7 +168,9 @@ void ofrDraw(OpenFontRender& ofr, const String& text, int x, int y, int px,
   anchorTopLeft(align, ox, oy, w, h);
   FT_BBox bbox;
   FT_Error error;
-  ofr.drawHString(text.c_str(), ox, oy, color, bg, Align::TopLeft,
+  // Pass white fg / black bg so the hook's color arg = coverage; the hook
+  // thresholds it and paints g_ink. (bg fill is unused — sprite is pre-cleared.)
+  ofr.drawHString(text.c_str(), ox, oy, 0xFFFF, 0x0000, Align::TopLeft,
                   Drawing::Execute, bbox, error);
 }
 
@@ -211,11 +221,15 @@ bool TextRenderer::begin(EPaper& display)
   g_disp = &display;
   auto bind = [&](OpenFontRender& ofr, const unsigned char* data, unsigned len) -> bool {
     ofr.setDrawer(static_cast<TFT_eSPI&>(display));
-    ofr.set_drawPixel([](int32_t px, int32_t py, uint16_t) {
-      if (g_disp) g_disp->drawPixel(px, py, g_ink);
+    // Coverage-thresholded ink: drop faint anti-aliased fringe pixels so glyphs
+    // stay crisp on the 4-bit GRAY4 panel instead of smudging.
+    ofr.set_drawPixel([](int32_t px, int32_t py, uint16_t c) {
+      if (g_disp && ofrCovered(c)) g_disp->drawPixel(px, py, g_ink);
     });
-    ofr.set_drawFastHLine([](int32_t px, int32_t py, int32_t pw, uint16_t) {
-      if (g_disp) { for (int32_t i = 0; i < pw; ++i) g_disp->drawPixel(px + i, py, g_ink); }
+    ofr.set_drawFastHLine([](int32_t px, int32_t py, int32_t pw, uint16_t c) {
+      if (g_disp && ofrCovered(c)) {
+        for (int32_t i = 0; i < pw; ++i) g_disp->drawPixel(px + i, py, g_ink);
+      }
     });
     return ofr.loadFont(data, len) == 0;   // 0 = success
   };
