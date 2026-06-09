@@ -334,18 +334,18 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     renderer_.drawTextFace(fetchBuf, w / 2, topY + 8, TextFace::SansBold18,
                            TextAlign::TopCenter, kText, kBg);
   } else {
-    // Segmented so "Last"/"Next" render one size smaller (raster) than the times.
-    const TextFace big = TextFace::SansBold9;
-    const String s0 = "Fetch:  ", s1 = "Last ", s2 = String(lastBuf) + " ",
-                 s3 = "Next ",    s4 = nextBuf;
-    const TextFace small = TextFace::Sans7;   // one size smaller, smooth (OFR)
+    // Segmented: "Last->"/"Next->" one size smaller (smooth OFR) than the times.
+    const TextFace big   = TextFace::SansBold12;   // Fetch label + times
+    const TextFace small = TextFace::Sans9;        // Last-> / Next->
+    const String s0 = "Fetch: ", s1 = "Last-> ", s2 = String(lastBuf) + " ",
+                 s3 = "Next-> ", s4 = nextBuf;
     const int w0 = renderer_.measureTextFace(s0, big);
     const int w1 = renderer_.measureTextFace(s1, small);
     const int w2 = renderer_.measureTextFace(s2, big);
     const int w3 = renderer_.measureTextFace(s3, small);
     const int w4 = renderer_.measureTextFace(s4, big);
     int sx = w / 2 - (w0 + w1 + w2 + w3 + w4) / 2;
-    const int by = topY + 13;   // common bottom baseline for mixed sizes
+    const int by = topY + 15;   // common bottom baseline; +2 for the taller glyphs
     renderer_.drawTextFace(s0, sx, by, big,   TextAlign::BottomLeft, kText, kBg); sx += w0;
     renderer_.drawTextFace(s1, sx, by, small, TextAlign::BottomLeft, kText, kBg); sx += w1;
     renderer_.drawTextFace(s2, sx, by, big,   TextAlign::BottomLeft, kText, kBg); sx += w2;
