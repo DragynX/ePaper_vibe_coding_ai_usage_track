@@ -2,7 +2,7 @@
 // Arduino IDE build config for E1001.
 // Provider selection is now runtime via the settings web UI — no reflash needed.
 
-#define UM_VERSION "1.9.2"
+#define UM_VERSION "1.9.3"
 
 // Render English text through OpenFontRender (TrueType, any pixel size) instead
 // of the fixed-size GFXFF fonts. Set to 0 to revert to GFXFF instantly.
