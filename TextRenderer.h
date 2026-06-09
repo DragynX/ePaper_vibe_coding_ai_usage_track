@@ -29,6 +29,8 @@ enum class TextFace {
   SansBold12,
   SansBold18,
   SansBold24,
+  SansBold36,   // ~2x SansBold18 (OFR builds only; GFXFF clamps to 24pt)
+  SansBold48,   // ~2x SansBold24
   MonoBold12
 };
 

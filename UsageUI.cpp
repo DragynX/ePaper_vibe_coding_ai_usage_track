@@ -431,18 +431,18 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
 
   if (!win.present) {
     renderer_.drawTextFace("--", x + pad, y + h / 2 - 10,
-                           emphasize ? TextFace::SansBold24 : TextFace::SansBold18,
+                           emphasize ? TextFace::SansBold48 : TextFace::SansBold36,
                            TextAlign::TopLeft, kMuted, kCard);
     return;
   }
 
-  // Big used percentage (FreeFonts on all panel types).
+  // Big used percentage (2x size; FreeFonts on all panel types).
   char pctBuf[8];
   snprintf(pctBuf, sizeof(pctBuf), "%d%%",
            static_cast<int>(win.usedPercent + 0.5));
   const int bigY = y + pad + 18;
   renderer_.drawTextFace(pctBuf, x + pad, bigY,
-                         emphasize ? TextFace::SansBold24 : TextFace::SansBold18,
+                         emphasize ? TextFace::SansBold48 : TextFace::SansBold36,
                          TextAlign::TopLeft, kText, kCard);
 
   // Used% bar near the bottom; it thickens as usage grows (every full 10%

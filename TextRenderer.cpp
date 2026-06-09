@@ -70,6 +70,8 @@ const GFXfont* toFreeFont(TextFace face) {
     case TextFace::SansBold12: return &FreeSansBold12pt7b;
     case TextFace::SansBold18: return &FreeSansBold18pt7b;
     case TextFace::SansBold24: return &FreeSansBold24pt7b;
+    case TextFace::SansBold36: return &FreeSansBold24pt7b;   // GFXFF caps at 24pt
+    case TextFace::SansBold48: return &FreeSansBold24pt7b;
     case TextFace::MonoBold12: return &FreeMonoBold12pt7b;
     default:                  return nullptr;
   }
@@ -117,6 +119,8 @@ int facePx(TextFace f) {
     case TextFace::SansBold12: return 17;
     case TextFace::SansBold18: return 25;
     case TextFace::SansBold24: return 33;
+    case TextFace::SansBold36: return 50;
+    case TextFace::SansBold48: return 66;
     case TextFace::MonoBold12: return 17;
     default:                  return 13;
   }
@@ -129,6 +133,8 @@ OpenFontRender& faceOfr(TextFace f) {
     case TextFace::SansBold12:
     case TextFace::SansBold18:
     case TextFace::SansBold24:
+    case TextFace::SansBold36:
+    case TextFace::SansBold48:
     case TextFace::MonoBold12: return g_ofrBold;
     default:                  return g_ofrReg;   // Bitmap, Sans7, Sans9
   }
