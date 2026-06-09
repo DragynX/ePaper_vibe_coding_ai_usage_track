@@ -1,7 +1,15 @@
 #include "TextRenderer.h"
 
 #include "AppLog.h"
+#include "ProjectConfig.h"
 #include "UiLang.h"
+
+// UM_USE_OFR routes the English build through OpenFontRender (TrueType + FreeType)
+// so any pixel size is available. Define it in ProjectConfig.h; default on here so
+// the file is self-contained. Set to 0 to fall back to the fixed-size GFXFF fonts.
+#ifndef UM_USE_OFR
+#define UM_USE_OFR 1
+#endif
 
 #if UM_LANG_ZH
 
@@ -56,6 +64,7 @@ uint8_t toTftDatum(TextAlign a) {
 
 const GFXfont* toFreeFont(TextFace face) {
   switch (face) {
+    case TextFace::Sans7:      return &FreeSans9pt7b;   // GFXFF has no 7pt; nearest
     case TextFace::Sans9:      return &FreeSans9pt7b;
     case TextFace::SansBold9:  return &FreeSansBold9pt7b;
     case TextFace::SansBold12: return &FreeSansBold12pt7b;
@@ -68,7 +77,102 @@ const GFXfont* toFreeFont(TextFace face) {
 
 }  // namespace
 
-#endif
+#if UM_USE_OFR
+// ---- English build via OpenFontRender (Latin TTF, any size) ----------------
+#include "OpenFontRender.h"
+#include "FontLatinRegular.h"   // const unsigned char um_font_latin_reg[];  _len
+#include "FontLatinBold.h"      // const unsigned char um_font_latin_bold[]; _len
+
+// Inert link stubs for OFR's file-based path (we load from memory only).
+FT_FILE *OFR_fopen(const char *, const char *) { return nullptr; }
+void OFR_fclose(FT_FILE *) {}
+size_t OFR_fread(void *, size_t, size_t, FT_FILE *) { return 0; }
+int OFR_fseek(FT_FILE *, long int, int) { return -1; }
+long int OFR_ftell(FT_FILE *) { return -1; }
+
+namespace {
+
+// Two faces: regular + bold (one OFR instance each).
+OpenFontRender g_ofrReg;
+OpenFontRender g_ofrBold;
+EPaper* g_disp = nullptr;
+uint16_t g_ink = 0;
+
+// drawText() "size unit" (old setTextSize scale) -> OFR pixels.
+constexpr int UM_PX_PER_UNIT = 8;
+
+// Pixel height per face. GRAY4 is crisp at these sizes; tuned on device.
+int facePx(TextFace f) {
+  switch (f) {
+    case TextFace::Sans7:      return 10;
+    case TextFace::Sans9:      return 13;
+    case TextFace::SansBold9:  return 13;
+    case TextFace::SansBold12: return 17;
+    case TextFace::SansBold18: return 25;
+    case TextFace::SansBold24: return 33;
+    case TextFace::MonoBold12: return 17;
+    default:                  return 13;
+  }
+}
+
+// Bold faces render through the bold instance; everything else regular.
+OpenFontRender& faceOfr(TextFace f) {
+  switch (f) {
+    case TextFace::SansBold9:
+    case TextFace::SansBold12:
+    case TextFace::SansBold18:
+    case TextFace::SansBold24:
+    case TextFace::MonoBold12: return g_ofrBold;
+    default:                  return g_ofrReg;   // Bitmap, Sans7, Sans9
+  }
+}
+
+// Resolve a TopLeft origin from the requested anchor for a w x h box.
+void anchorTopLeft(TextAlign a, int& x, int& y, int w, int h) {
+  switch (a) {
+    case TextAlign::TopCenter:
+    case TextAlign::MiddleCenter:
+    case TextAlign::BottomCenter: x -= w / 2; break;
+    case TextAlign::TopRight:
+    case TextAlign::MiddleRight:
+    case TextAlign::BottomRight:  x -= w; break;
+    default: break;
+  }
+  switch (a) {
+    case TextAlign::MiddleLeft:
+    case TextAlign::MiddleCenter:
+    case TextAlign::MiddleRight:  y -= h / 2; break;
+    case TextAlign::BottomLeft:
+    case TextAlign::BottomCenter:
+    case TextAlign::BottomRight:  y -= h; break;
+    default: break;
+  }
+}
+
+void ofrDraw(OpenFontRender& ofr, const String& text, int x, int y, int px,
+             TextAlign align, uint16_t color, uint16_t bg) {
+  g_ink = color;                       // solid-ink hooks paint this
+  ofr.setFontSize(static_cast<unsigned>(px));
+  // "%s" wrapper: getTextWidth is printf-style; a literal '%' would be a format.
+  const int w = static_cast<int>(ofr.getTextWidth("%s", text.c_str()));
+  const int h = px;
+  int ox = x, oy = y;
+  anchorTopLeft(align, ox, oy, w, h);
+  FT_BBox bbox;
+  FT_Error error;
+  ofr.drawHString(text.c_str(), ox, oy, color, bg, Align::TopLeft,
+                  Drawing::Execute, bbox, error);
+}
+
+int ofrWidth(OpenFontRender& ofr, const String& text, int px) {
+  ofr.setFontSize(static_cast<unsigned>(px));
+  return static_cast<int>(ofr.getTextWidth("%s", text.c_str()));
+}
+
+}  // namespace
+#endif  // UM_USE_OFR
+
+#endif  // UM_LANG_ZH
 
 bool TextRenderer::begin(EPaper& display)
 {
@@ -101,6 +205,25 @@ bool TextRenderer::begin(EPaper& display)
   g_ofr.showCredit();   // FreeType FTL license attribution
   fontReady_ = true;
   return true;
+#elif UM_USE_OFR
+  // English build: bind both faces and load the embedded Latin TTFs. The same
+  // 4-bit solid-ink override as the ZH path keeps glyphs crisp on GRAY4.
+  g_disp = &display;
+  auto bind = [&](OpenFontRender& ofr, const unsigned char* data, unsigned len) -> bool {
+    ofr.setDrawer(static_cast<TFT_eSPI&>(display));
+    ofr.set_drawPixel([](int32_t px, int32_t py, uint16_t) {
+      if (g_disp) g_disp->drawPixel(px, py, g_ink);
+    });
+    ofr.set_drawFastHLine([](int32_t px, int32_t py, int32_t pw, uint16_t) {
+      if (g_disp) { for (int32_t i = 0; i < pw; ++i) g_disp->drawPixel(px + i, py, g_ink); }
+    });
+    return ofr.loadFont(data, len) == 0;   // 0 = success
+  };
+  const bool okReg  = bind(g_ofrReg,  um_font_latin_reg,  um_font_latin_reg_len);
+  const bool okBold = bind(g_ofrBold, um_font_latin_bold, um_font_latin_bold_len);
+  fontReady_ = okReg && okBold;
+  if (!fontReady_) sysLog("[ofr] latin loadFont failed -> GFXFF fallback");
+  return true;   // GFXFF/bitmap fallback still renders even if !fontReady_
 #else
   fontReady_ = true;    // bitmap font is always available
   return true;
@@ -155,6 +278,12 @@ void TextRenderer::drawText(const String& text, int x, int y, int sizeUnit,
   g_ofr.drawHString(text.c_str(), ox, oy, color, bg,
                     Align::TopLeft, Drawing::Execute, bbox, error);
 #else
+#if UM_USE_OFR
+  if (fontReady_) {
+    ofrDraw(g_ofrReg, text, x, y, sizeUnit * UM_PX_PER_UNIT, align, color, bg);
+    return;
+  }
+#endif
   display_->setTextSize(sizeUnit);
   display_->setTextColor(color, bg, true);
   display_->setTextDatum(toTftDatum(align));
@@ -178,6 +307,12 @@ void TextRenderer::drawTextFace(const String& text, int x, int y, TextFace face,
   }
   drawText(text, x, y, sizeUnit, align, color, bg);
 #else
+#if UM_USE_OFR
+  if (fontReady_) {
+    ofrDraw(faceOfr(face), text, x, y, facePx(face), align, color, bg);
+    return;
+  }
+#endif
   const GFXfont* font = toFreeFont(face);
   if (!font) {
     drawText(text, x, y, 2, align, color, bg);
@@ -200,6 +335,9 @@ int TextRenderer::measureText(const String& text, int sizeUnit)
   g_ofr.setFontSize(static_cast<unsigned>(sizeUnit * UM_ZH_PX_PER_UNIT));
   return static_cast<int>(g_ofr.getTextWidth("%s", text.c_str()));
 #else
+#if UM_USE_OFR
+  if (fontReady_) return ofrWidth(g_ofrReg, text, sizeUnit * UM_PX_PER_UNIT);
+#endif
   display_->setTextSize(sizeUnit);
   return static_cast<int>(display_->textWidth(text));
 #endif
@@ -220,6 +358,9 @@ int TextRenderer::measureTextFace(const String& text, TextFace face)
   }
   return measureText(text, sizeUnit);
 #else
+#if UM_USE_OFR
+  if (fontReady_) return ofrWidth(faceOfr(face), text, facePx(face));
+#endif
   const GFXfont* font = toFreeFont(face);
   if (!font) return measureText(text, 2);
   display_->setFreeFont(font);

@@ -314,8 +314,8 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     display_.drawRoundRect(pillX, pillY, pillW, pillH, pillH / 2, kText);
     renderer_.drawTextFace(appName, margin, topY,
                            TextFace::SansBold9, TextAlign::TopLeft, kText, kBg);
-    renderer_.drawText(UM_VERSION, pillX + pillW + 8, topY + nameH, 1,
-                       TextAlign::BottomLeft, kText, kBg);
+    renderer_.drawTextFace(UM_VERSION, pillX + pillW + 8, topY + nameH,
+                           TextFace::Sans7, TextAlign::BottomLeft, kText, kBg);
   }
 
   // Center: Last Fetch / Next Fetch times (local TZ) instead of a wall clock.
@@ -338,18 +338,19 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     const TextFace big = TextFace::SansBold9;
     const String s0 = "Fetch:  ", s1 = "Last ", s2 = String(lastBuf) + " ",
                  s3 = "Next ",    s4 = nextBuf;
+    const TextFace small = TextFace::Sans7;   // one size smaller, smooth (OFR)
     const int w0 = renderer_.measureTextFace(s0, big);
-    const int w1 = renderer_.measureText(s1, 1);
+    const int w1 = renderer_.measureTextFace(s1, small);
     const int w2 = renderer_.measureTextFace(s2, big);
-    const int w3 = renderer_.measureText(s3, 1);
+    const int w3 = renderer_.measureTextFace(s3, small);
     const int w4 = renderer_.measureTextFace(s4, big);
     int sx = w / 2 - (w0 + w1 + w2 + w3 + w4) / 2;
     const int by = topY + 13;   // common bottom baseline for mixed sizes
-    renderer_.drawTextFace(s0, sx, by, big, TextAlign::BottomLeft, kText, kBg); sx += w0;
-    renderer_.drawText    (s1, sx, by, 1,   TextAlign::BottomLeft, kText, kBg); sx += w1;
-    renderer_.drawTextFace(s2, sx, by, big, TextAlign::BottomLeft, kText, kBg); sx += w2;
-    renderer_.drawText    (s3, sx, by, 1,   TextAlign::BottomLeft, kText, kBg); sx += w3;
-    renderer_.drawTextFace(s4, sx, by, big, TextAlign::BottomLeft, kText, kBg);
+    renderer_.drawTextFace(s0, sx, by, big,   TextAlign::BottomLeft, kText, kBg); sx += w0;
+    renderer_.drawTextFace(s1, sx, by, small, TextAlign::BottomLeft, kText, kBg); sx += w1;
+    renderer_.drawTextFace(s2, sx, by, big,   TextAlign::BottomLeft, kText, kBg); sx += w2;
+    renderer_.drawTextFace(s3, sx, by, small, TextAlign::BottomLeft, kText, kBg); sx += w3;
+    renderer_.drawTextFace(s4, sx, by, big,   TextAlign::BottomLeft, kText, kBg);
   }
 
   // Right: refresh note + WiFi/battery icons.

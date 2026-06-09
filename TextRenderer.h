@@ -23,6 +23,7 @@ enum class TextAlign {
 
 enum class TextFace {
   Bitmap,
+  Sans7,       // small regular — for tiny header labels (OFR builds render true size)
   Sans9,
   SansBold9,
   SansBold12,
