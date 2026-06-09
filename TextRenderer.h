@@ -47,6 +47,9 @@ class TextRenderer {
   bool setFontIndex(int i);
   static int fontCount();
 
+  // Edge rendering: true = 4-level grayscale anti-aliasing (smooth), false = crisp 1-bit.
+  void setSmoothing(bool on);
+
   bool fontReady() const { return fontReady_; }
 
   // Draws `text` so the chosen anchor lands at (x, y). `sizeUnit` keeps the

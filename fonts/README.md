@@ -9,8 +9,13 @@ Toggle the whole engine off with `#define UM_USE_OFR 0` in `ProjectConfig.h` (re
 fixed-size GFXFF fonts).
 
 ## Font table (index = `ui_font` value = `<select>` order = `kFonts[]` in TextRenderer.cpp)
-0 Arimo (Arial / Liberation Sans) · 1 Roboto · 2 Open Sans · 3 Noto Sans ·
-4 Source Sans 3 · 5 IBM Plex Sans · 6 Fira Sans · 7 DejaVu Sans
+0 Arimo · 1 DejaVu Sans · 2 Atkinson Hyperlegible · 3 B612 · 4 Lexend · 5 Hack (mono) ·
+6 JetBrains Mono · 7 Carlito · 8 Roboto · 9 Open Sans · 10 Noto Sans · 11 Source Sans 3 ·
+12 IBM Plex Sans · 13 Fira Sans
+
+Edge rendering is also selectable: **Smooth** (4-level grayscale AA, default) vs **Crisp**
+(1-bit) via the `ui_aa` checkbox — handled in `TextRenderer.cpp` `ofrPaint()` /
+`setSmoothing()`, not the font files.
 
 Each is embedded as a regular + bold ASCII subset in the generated `FontData.h` (repo root)
 as `um_f<i>_reg[]` / `um_f<i>_bold[]` (+ `_len`). Full TTFs are kept in this folder for

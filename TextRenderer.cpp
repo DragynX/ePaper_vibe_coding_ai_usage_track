@@ -98,20 +98,28 @@ OpenFontRender g_ofrReg;
 OpenFontRender g_ofrBold;
 EPaper* g_disp = nullptr;
 uint16_t g_ink = 0;             // real panel gray index to paint glyph ink with
+uint16_t g_bg  = 0;             // local background gray index (for smooth AA blend)
+bool     g_aa  = true;          // true = 4-level grayscale AA, false = crisp 1-bit
 
 // Selectable typefaces (order MUST match the ui_font <select> in SettingsServer).
 struct UmFont { const char* name;
                 const unsigned char* reg;  unsigned regLen;
                 const unsigned char* bold; unsigned boldLen; };
 const UmFont kFonts[] = {
-  {"Arimo",         um_f0_reg, um_f0_reg_len, um_f0_bold, um_f0_bold_len},
-  {"Roboto",        um_f1_reg, um_f1_reg_len, um_f1_bold, um_f1_bold_len},
-  {"Open Sans",     um_f2_reg, um_f2_reg_len, um_f2_bold, um_f2_bold_len},
-  {"Noto Sans",     um_f3_reg, um_f3_reg_len, um_f3_bold, um_f3_bold_len},
-  {"Source Sans 3", um_f4_reg, um_f4_reg_len, um_f4_bold, um_f4_bold_len},
-  {"IBM Plex Sans", um_f5_reg, um_f5_reg_len, um_f5_bold, um_f5_bold_len},
-  {"Fira Sans",     um_f6_reg, um_f6_reg_len, um_f6_bold, um_f6_bold_len},
-  {"DejaVu Sans",   um_f7_reg, um_f7_reg_len, um_f7_bold, um_f7_bold_len},
+  {"Arimo",                 um_f0_reg,  um_f0_reg_len,  um_f0_bold,  um_f0_bold_len},
+  {"DejaVu Sans",           um_f1_reg,  um_f1_reg_len,  um_f1_bold,  um_f1_bold_len},
+  {"Atkinson Hyperlegible", um_f2_reg,  um_f2_reg_len,  um_f2_bold,  um_f2_bold_len},
+  {"B612",                  um_f3_reg,  um_f3_reg_len,  um_f3_bold,  um_f3_bold_len},
+  {"Lexend",                um_f4_reg,  um_f4_reg_len,  um_f4_bold,  um_f4_bold_len},
+  {"Hack",                  um_f5_reg,  um_f5_reg_len,  um_f5_bold,  um_f5_bold_len},
+  {"JetBrains Mono",        um_f6_reg,  um_f6_reg_len,  um_f6_bold,  um_f6_bold_len},
+  {"Carlito",               um_f7_reg,  um_f7_reg_len,  um_f7_bold,  um_f7_bold_len},
+  {"Roboto",                um_f8_reg,  um_f8_reg_len,  um_f8_bold,  um_f8_bold_len},
+  {"Open Sans",             um_f9_reg,  um_f9_reg_len,  um_f9_bold,  um_f9_bold_len},
+  {"Noto Sans",             um_f10_reg, um_f10_reg_len, um_f10_bold, um_f10_bold_len},
+  {"Source Sans 3",         um_f11_reg, um_f11_reg_len, um_f11_bold, um_f11_bold_len},
+  {"IBM Plex Sans",         um_f12_reg, um_f12_reg_len, um_f12_bold, um_f12_bold_len},
+  {"Fira Sans",             um_f13_reg, um_f13_reg_len, um_f13_bold, um_f13_bold_len},
 };
 constexpr int kFontCount = sizeof(kFonts) / sizeof(kFonts[0]);
 int g_fontIdx = -1;            // currently loaded index (-1 = none yet)
@@ -120,11 +128,23 @@ int g_fontIdx = -1;            // currently loaded index (-1 = none yet)
 constexpr int UM_PX_PER_UNIT = 8;
 
 // We feed OFR pure white fg / black bg, so the color it hands the pixel hooks
-// encodes glyph coverage. Threshold that to crisp 1-bit (the GRAY4 panel mangles
-// real anti-aliasing): paint ink only where coverage clears the cutoff. The
-// green channel (6 bits, 0..63) is the luminance proxy. Lower = bolder strokes.
-constexpr uint8_t UM_OFR_THRESH = 30;   // ~45% coverage; tunable 20..40
-static inline bool ofrCovered(uint16_t c) { return ((c >> 5) & 0x3F) >= UM_OFR_THRESH; }
+// encodes glyph coverage in its green channel (6 bits, 0..63 = the luminance proxy).
+//  Crisp mode: threshold to 1-bit (paint ink above the cutoff).
+//  Smooth mode: interpolate along the panel's gray ramp from bg->ink for soft edges.
+constexpr uint8_t UM_OFR_THRESH = 30;   // crisp cutoff (~45%); lower = bolder strokes
+static inline uint8_t ofrLum(uint16_t c) { return (c >> 5) & 0x3F; }
+
+// One covered pixel: crisp = ink-or-skip; smooth = gray ramp index bg..ink.
+static inline void ofrPaint(int32_t px, int32_t py, uint16_t c) {
+  if (!g_disp) return;
+  const uint8_t lum = ofrLum(c);
+  if (g_aa) {
+    const int idx = (int)g_bg + (((int)g_ink - (int)g_bg) * lum + 31) / 63;
+    g_disp->drawPixel(px, py, (uint16_t)idx);
+  } else if (lum >= UM_OFR_THRESH) {
+    g_disp->drawPixel(px, py, g_ink);
+  }
+}
 
 // Pixel height per face. GRAY4 is crisp at these sizes; tuned on device.
 int facePx(TextFace f) {
@@ -180,8 +200,8 @@ void anchorTopLeft(TextAlign a, int& x, int& y, int w, int h) {
 
 void ofrDraw(OpenFontRender& ofr, const String& text, int x, int y, int px,
              TextAlign align, uint16_t color, uint16_t bg) {
-  (void)bg;
-  g_ink = color;                       // the gray index the threshold hooks paint
+  g_ink = color;                       // ink gray index the hooks paint
+  g_bg  = bg;                          // local background gray index (smooth AA blends to it)
   ofr.setFontSize(static_cast<unsigned>(px));
   // "%s" wrapper: getTextWidth is printf-style; a literal '%' would be a format.
   const int w = static_cast<int>(ofr.getTextWidth("%s", text.c_str()));
@@ -246,12 +266,10 @@ bool TextRenderer::begin(EPaper& display)
   auto setup = [&](OpenFontRender& ofr) {
     ofr.setDrawer(static_cast<TFT_eSPI&>(display));
     ofr.set_drawPixel([](int32_t px, int32_t py, uint16_t c) {
-      if (g_disp && ofrCovered(c)) g_disp->drawPixel(px, py, g_ink);
+      ofrPaint(px, py, c);
     });
     ofr.set_drawFastHLine([](int32_t px, int32_t py, int32_t pw, uint16_t c) {
-      if (g_disp && ofrCovered(c)) {
-        for (int32_t i = 0; i < pw; ++i) g_disp->drawPixel(px + i, py, g_ink);
-      }
+      for (int32_t i = 0; i < pw; ++i) ofrPaint(px + i, py, c);
     });
   };
   setup(g_ofrReg);
@@ -288,6 +306,14 @@ int TextRenderer::fontCount() {
   return kFontCount;
 #else
   return 1;
+#endif
+}
+
+void TextRenderer::setSmoothing(bool on) {
+#if !UM_LANG_ZH && UM_USE_OFR
+  g_aa = on;
+#else
+  (void)on;
 #endif
 }
 

@@ -44,6 +44,9 @@ class UsageUI {
   // builds; caller repaints afterward.
   void setFont(int i) { renderer_.setFontIndex(i); }
 
+  // Edge smoothing: true = grayscale anti-aliased, false = crisp 1-bit. Repaint after.
+  void setSmoothing(bool on) { renderer_.setSmoothing(on); }
+
   // One-line boot/splash reusing the header band (full clear + full refresh).
   void drawBoot(const String& statusText, const UiStatus& status, long nowEpoch);
 
