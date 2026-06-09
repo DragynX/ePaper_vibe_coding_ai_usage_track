@@ -477,7 +477,7 @@ async function keepAlive(){
 async function sleepNow(){
   try{await fetch('/api/sleepnow',{method:'POST'});}catch(e){}
   userSleeping=true;sModal.classList.remove('on');sleepRemain=0;renderTimer();
-  setMsg('Sleeping…','#888');
+  wMsg.textContent=ASLEEP_MSG;wBox.classList.add('on');
 }
 let wasOnline=true;   // device reachability; false while it's asleep/unreachable
 let bootId=null;      // device session token; changes every wake (boot_id)
