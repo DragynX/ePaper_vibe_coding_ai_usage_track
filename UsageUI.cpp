@@ -445,17 +445,12 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
                          emphasize ? TextFace::SansBold48 : TextFace::SansBold36,
                          TextAlign::TopLeft, kText, kCard);
 
-  // Used% bar near the bottom; it thickens as usage grows: every 5% used adds
-  // 5px of height, anchored at a fixed bottom edge so it grows upward.
+  // Used% bar near the bottom; it thickens as usage grows (every full 10%
+  // used adds 8% of the base height), anchored at a fixed bottom edge.
   const int baseH = kIsLarge ? 8 : 10;
-  const int steps = static_cast<int>(win.usedPercent / 5.0);   // 0..20
-  int barH = baseH + 5 * steps;
+  const int steps = static_cast<int>(win.usedPercent / 10.0);   // 0..10
+  const int barH  = baseH + (baseH * 8 * steps) / 100;
   const int slotBottom = y + h - pad - (kIsLarge ? 20 : 18);
-  // Clamp so the growing bar never climbs into the big % number above it.
-  const int barTopLimit = bigY + (emphasize ? 66 : 50) + 6;
-  const int maxBarH = slotBottom - barTopLimit;
-  if (barH > maxBarH) barH = maxBarH;
-  if (barH < baseH)   barH = baseH;
   const int barY = slotBottom - barH;
   drawProgressBar(x + pad, barY, w - pad * 2, barH, win.usedPercent,
                   statusColor(win.status), kTrack);
