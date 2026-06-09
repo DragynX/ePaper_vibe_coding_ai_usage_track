@@ -40,6 +40,10 @@ class UsageUI {
   // (black background, white ink) on the GRAY4 panel. No-op on other panels.
   void setDarkMode(bool dark);
 
+  // Select the device typeface (index into the font table). Hot-swaps on OFR
+  // builds; caller repaints afterward.
+  void setFont(int i) { renderer_.setFontIndex(i); }
+
   // One-line boot/splash reusing the header band (full clear + full refresh).
   void drawBoot(const String& statusText, const UiStatus& status, long nowEpoch);
 

@@ -16,6 +16,7 @@ class ConfigStore {
   bool deepSleepEnabled() const { return deepSleep_; }
   bool darkMode() const         { return dark_; }
   bool secureTokens() const     { return secure_; }
+  int  uiFont() const           { return ui_font_; }
   uint16_t battFullMv() const   { return battFull_; }
 
   // Bitmask of providers whose secret changed in the last fromJson() (bit n =
@@ -52,6 +53,7 @@ class ConfigStore {
   void setDeepSleep(bool v)              { deepSleep_ = v; }
   void setDarkMode(bool v)               { dark_ = v; }
   void setSecureTokens(bool v)           { secure_ = v; }
+  void setUiFont(int v)                  { ui_font_ = v; }
   void setBattFullMv(uint16_t v)         { battFull_ = v; }
   void setClaudeAt(const String& v)      { cl_at_ = v; }
   void setClaudeRt(const String& v)      { cl_rt_ = v; }
@@ -88,6 +90,7 @@ class ConfigStore {
   uint32_t refreshSec_ = 300;
   bool    deepSleep_   = false;
   bool    dark_        = false;
+  int     ui_font_     = 0;       // selected device typeface index (0..N-1)
   bool    secure_      = false;
   uint16_t battFull_   = 4200;
   uint8_t pendingTestMask_ = 0;

@@ -82,8 +82,7 @@ const GFXfont* toFreeFont(TextFace face) {
 #if UM_USE_OFR
 // ---- English build via OpenFontRender (Latin TTF, any size) ----------------
 #include "OpenFontRender.h"
-#include "FontLatinRegular.h"   // const unsigned char um_font_latin_reg[];  _len
-#include "FontLatinBold.h"      // const unsigned char um_font_latin_bold[]; _len
+#include "FontData.h"           // um_f0_reg/_bold .. um_f7_reg/_bold (+ _len)
 
 // Inert link stubs for OFR's file-based path (we load from memory only).
 FT_FILE *OFR_fopen(const char *, const char *) { return nullptr; }
@@ -99,6 +98,23 @@ OpenFontRender g_ofrReg;
 OpenFontRender g_ofrBold;
 EPaper* g_disp = nullptr;
 uint16_t g_ink = 0;             // real panel gray index to paint glyph ink with
+
+// Selectable typefaces (order MUST match the ui_font <select> in SettingsServer).
+struct UmFont { const char* name;
+                const unsigned char* reg;  unsigned regLen;
+                const unsigned char* bold; unsigned boldLen; };
+const UmFont kFonts[] = {
+  {"Arimo",         um_f0_reg, um_f0_reg_len, um_f0_bold, um_f0_bold_len},
+  {"Roboto",        um_f1_reg, um_f1_reg_len, um_f1_bold, um_f1_bold_len},
+  {"Open Sans",     um_f2_reg, um_f2_reg_len, um_f2_bold, um_f2_bold_len},
+  {"Noto Sans",     um_f3_reg, um_f3_reg_len, um_f3_bold, um_f3_bold_len},
+  {"Source Sans 3", um_f4_reg, um_f4_reg_len, um_f4_bold, um_f4_bold_len},
+  {"IBM Plex Sans", um_f5_reg, um_f5_reg_len, um_f5_bold, um_f5_bold_len},
+  {"Fira Sans",     um_f6_reg, um_f6_reg_len, um_f6_bold, um_f6_bold_len},
+  {"DejaVu Sans",   um_f7_reg, um_f7_reg_len, um_f7_bold, um_f7_bold_len},
+};
+constexpr int kFontCount = sizeof(kFonts) / sizeof(kFonts[0]);
+int g_fontIdx = -1;            // currently loaded index (-1 = none yet)
 
 // drawText() "size unit" (old setTextSize scale) -> OFR pixels.
 constexpr int UM_PX_PER_UNIT = 8;
@@ -222,13 +238,13 @@ bool TextRenderer::begin(EPaper& display)
   fontReady_ = true;
   return true;
 #elif UM_USE_OFR
-  // English build: bind both faces and load the embedded Latin TTFs. The same
-  // 4-bit solid-ink override as the ZH path keeps glyphs crisp on GRAY4.
+  // English build: bind the drawer + the 4-bit solid-ink/coverage hooks once on
+  // each face; the actual TTF is loaded by setFontIndex (also used for live
+  // font switching). Hooks drop faint anti-aliased fringe pixels so glyphs stay
+  // crisp on GRAY4 instead of smudging.
   g_disp = &display;
-  auto bind = [&](OpenFontRender& ofr, const unsigned char* data, unsigned len) -> bool {
+  auto setup = [&](OpenFontRender& ofr) {
     ofr.setDrawer(static_cast<TFT_eSPI&>(display));
-    // Coverage-thresholded ink: drop faint anti-aliased fringe pixels so glyphs
-    // stay crisp on the 4-bit GRAY4 panel instead of smudging.
     ofr.set_drawPixel([](int32_t px, int32_t py, uint16_t c) {
       if (g_disp && ofrCovered(c)) g_disp->drawPixel(px, py, g_ink);
     });
@@ -237,16 +253,41 @@ bool TextRenderer::begin(EPaper& display)
         for (int32_t i = 0; i < pw; ++i) g_disp->drawPixel(px + i, py, g_ink);
       }
     });
-    return ofr.loadFont(data, len) == 0;   // 0 = success
   };
-  const bool okReg  = bind(g_ofrReg,  um_font_latin_reg,  um_font_latin_reg_len);
-  const bool okBold = bind(g_ofrBold, um_font_latin_bold, um_font_latin_bold_len);
-  fontReady_ = okReg && okBold;
-  if (!fontReady_) sysLog("[ofr] latin loadFont failed -> GFXFF fallback");
-  return true;   // GFXFF/bitmap fallback still renders even if !fontReady_
+  setup(g_ofrReg);
+  setup(g_ofrBold);
+  setFontIndex(0);   // load the default typeface (sets fontReady_)
+  if (!fontReady_) sysLog("[ofr] font load failed -> GFXFF fallback");
+  return true;       // GFXFF/bitmap fallback still renders even if !fontReady_
 #else
   fontReady_ = true;    // bitmap font is always available
   return true;
+#endif
+}
+
+bool TextRenderer::setFontIndex(int i) {
+#if !UM_LANG_ZH && UM_USE_OFR
+  if (i < 0 || i >= kFontCount) i = 0;
+  if (i == g_fontIdx) return fontReady_;     // already active -> no-op
+  if (g_fontIdx >= 0) { g_ofrReg.unloadFont(); g_ofrBold.unloadFont(); }
+  const bool okR = g_ofrReg.loadFont(kFonts[i].reg,  kFonts[i].regLen)  == 0;
+  const bool okB = g_ofrBold.loadFont(kFonts[i].bold, kFonts[i].boldLen) == 0;
+  fontReady_ = okR && okB;
+  g_fontIdx  = fontReady_ ? i : -1;
+  if (fontReady_) sysLog("[ofr] font %d (%s) loaded", i, kFonts[i].name);
+  else            sysLog("[ofr] font %d load failed", i);
+  return fontReady_;
+#else
+  (void)i;
+  return fontReady_;
+#endif
+}
+
+int TextRenderer::fontCount() {
+#if !UM_LANG_ZH && UM_USE_OFR
+  return kFontCount;
+#else
+  return 1;
 #endif
 }
 

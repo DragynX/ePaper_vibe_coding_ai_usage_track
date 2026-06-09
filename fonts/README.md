@@ -1,42 +1,58 @@
-# Device fonts (OpenFontRender / TrueType)
+# Device fonts (OpenFontRender / TrueType) — runtime-selectable
 
 The English build renders all on-device text through **OpenFontRender** (TrueType +
-FreeType) so any pixel size is available. The active typeface is **Arimo**
-(`Arimo-Regular.ttf` / `Arimo-Bold.ttf`) — Google's metric-compatible clone of
-**Liberation Sans / Arial**. Roboto and DejaVu Sans are kept here as drop-in backups.
+FreeType), so any pixel size is available. **8 typefaces** are embedded and the active one
+is chosen at runtime from the web settings **Display → Device font** dropdown (hot-swaps,
+no reboot; persisted in NVS as `ui_font`).
 
-Toggle the whole system off with `#define UM_USE_OFR 0` in `ProjectConfig.h` (reverts to
-the fixed-size GFXFF fonts).
+Toggle the whole engine off with `#define UM_USE_OFR 0` in `ProjectConfig.h` (reverts to the
+fixed-size GFXFF fonts).
 
-## Files
-- `Arimo-Regular.ttf`, `Arimo-Bold.ttf` — active (full TTFs, kept for re-subsetting).
-- `Arimo-*.subset.ttf` — ASCII-subset actually embedded.
-- `Roboto-*.ttf`, `DejaVuSans*.ttf` — backup typefaces.
-- The embedded C arrays live at the repo root: `FontLatinRegular.h`
-  (`um_font_latin_reg[]` / `_len`) and `FontLatinBold.h` (`um_font_latin_bold[]` / `_len`).
+## Font table (index = `ui_font` value = `<select>` order = `kFonts[]` in TextRenderer.cpp)
+0 Arimo (Arial / Liberation Sans) · 1 Roboto · 2 Open Sans · 3 Noto Sans ·
+4 Source Sans 3 · 5 IBM Plex Sans · 6 Fira Sans · 7 DejaVu Sans
 
-## Regenerate / swap typeface
+Each is embedded as a regular + bold ASCII subset in the generated `FontData.h` (repo root)
+as `um_f<i>_reg[]` / `um_f<i>_bold[]` (+ `_len`). Full TTFs are kept in this folder for
+re-subsetting.
+
+## Regenerate `FontData.h` (after adding/swapping a font or changing glyph coverage)
 Requires Python + `fonttools` (`python -m pip install fonttools brotli`) and `xxd`.
+Edit the `fonts=( ... )` list (index → `Name|Regular.ttf|Bold.ttf`) and run:
 
 ```bash
 cd fonts
-U="U+0020-007E,U+00B0,U+2013,U+2014,U+2022,U+00B7,U+2192"   # ASCII + a few punctuation
-# pick a face, e.g. Roboto:
-for w in Regular Bold; do
-  python -m fontTools.subset "Roboto-$w.ttf" --unicodes="$U" \
-    --layout-features='*' --notdef-outline --output-file="Roboto-$w.subset.ttf"
+U="U+0020-007E,U+00B0,U+2013,U+2014,U+2022,U+00B7,U+2192"   # ASCII + a little punctuation
+fonts=(
+"Arimo|Arimo-Regular.ttf|Arimo-Bold.ttf"
+"Roboto|Roboto-Regular.ttf|Roboto-Bold.ttf"
+"Open Sans|OpenSans-Regular.ttf|OpenSans-Bold.ttf"
+"Noto Sans|NotoSans-Regular.ttf|NotoSans-Bold.ttf"
+"Source Sans 3|SourceSans3-Regular.ttf|SourceSans3-Bold.ttf"
+"IBM Plex Sans|IBMPlexSans-Regular.ttf|IBMPlexSans-Bold.ttf"
+"Fira Sans|FiraSans-Regular.ttf|FiraSans-Bold.ttf"
+"DejaVu Sans|DejaVuSans.ttf|DejaVuSans-Bold.ttf"
+)
+OUT=../FontData.h
+{ echo "#pragma once"; echo "// Generated. Do not edit by hand."; } > "$OUT"
+i=0
+for e in "${fonts[@]}"; do rest="${e#*|}"; reg="${rest%%|*}"; bold="${rest##*|}"
+  for w in reg bold; do
+    src=$([ "$w" = reg ] && echo "$reg" || echo "$bold")
+    python -m fontTools.subset "$src" --unicodes="$U" --layout-features='*' \
+      --notdef-outline --output-file="_s.ttf" >/dev/null 2>&1
+    sym="um_f${i}_${w}"
+    xxd -i _s.ttf | sed -e "s/unsigned char .*\[\]/const unsigned char ${sym}[]/" \
+                        -e "s/unsigned int .*_len/const unsigned int ${sym}_len/" >> "$OUT"
+    rm -f _s.ttf
+  done; i=$((i+1))
 done
-# regenerate the embedded headers (rename symbols, mark const):
-gen(){ { echo '#pragma once';
-         xxd -i "$1" | sed -e "s/unsigned char .*\[\]/const unsigned char $2[]/" \
-                            -e "s/unsigned int .*_len/const unsigned int ${2}_len/"; } > "../$3"; }
-gen Roboto-Regular.subset.ttf um_font_latin_reg  FontLatinRegular.h
-gen Roboto-Bold.subset.ttf    um_font_latin_bold FontLatinBold.h
 ```
-Then rebuild. Per-face pixel sizes are tuned in `TextRenderer.cpp` (`facePx()`); the
-`TextFace` enum is in `TextRenderer.h`.
+If you change the count/order, also update `kFonts[]` (TextRenderer.cpp) and the `ui_font`
+`<option>` list (SettingsServer.cpp) to match. Per-face pixel sizes: `facePx()` in
+TextRenderer.cpp. ~650 KB flash for all 8.
 
-## Sources
-- Arimo: github.com/googlefonts/Arimo (Apache-2.0)
-- Roboto: github.com/googlefonts/roboto (Apache-2.0)
-- DejaVu Sans: dejavu-fonts.github.io (Bitstream Vera / public-domain-ish)
+## Sources (all open-license, fetched via jsdelivr `gh`)
+Arimo googlefonts/Arimo · Roboto googlefonts/roboto · Open Sans googlefonts/opensans ·
+Noto Sans notofonts/noto-fonts · Source Sans adobe-fonts/source-sans · IBM Plex IBM/plex ·
+Fira Sans mozilla/Fira · DejaVu dejavu-fonts.

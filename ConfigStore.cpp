@@ -22,6 +22,7 @@ void ConfigStore::load() {
   deepSleep_  = p.getBool("deep_sleep", false);
   dark_       = p.getBool("dark", false);
   secure_     = p.getBool("secure", false);
+  ui_font_    = p.getInt("ui_font", 0);
   battFull_   = (uint16_t)p.getUShort("batt_full", 4200);
   cl_at_  = p.getString("cl_at",  "");
   cl_rt_  = p.getString("cl_rt",  "");
@@ -58,6 +59,7 @@ void ConfigStore::save() {
   p.putBool("deep_sleep",  deepSleep_);
   p.putBool("dark",        dark_);
   p.putBool("secure",      secure_);
+  p.putInt("ui_font",      ui_font_);
   p.putUShort("batt_full", battFull_);
   p.putString("cl_at",     cl_at_);
   p.putString("cl_rt",     cl_rt_);
@@ -93,6 +95,7 @@ String ConfigStore::toJson() const {
   doc["deep_sleep"] = deepSleep_;
   doc["dark"]       = dark_;
   doc["secure"]     = secure_;
+  doc["ui_font"]    = ui_font_;
   doc["batt_full"]  = battFull_;
   // Secret fields: when Secure Tokens is ON they are NOT echoed (only a
   // <key>_set flag) so they never cross the LAN; when OFF the real value is
@@ -148,6 +151,7 @@ bool ConfigStore::fromJson(const String& json) {
   deepSleep_ = doc["deep_sleep"] | deepSleep_;
   dark_      = doc["dark"] | dark_;
   secure_    = doc["secure"] | secure_;
+  ui_font_   = doc["ui_font"] | ui_font_;
   battFull_  = doc["batt_full"] | battFull_;
   setSecret("cl_at", cl_at_, UM_PROV_CLAUDE);
   setSecret("cl_rt", cl_rt_, UM_PROV_CLAUDE);

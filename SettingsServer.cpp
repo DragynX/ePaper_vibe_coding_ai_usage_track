@@ -183,6 +183,17 @@ R"rawhtml(
     <input type="checkbox" id="dark">
     <span>Dark mode (screen)</span>
   </label>
+  <label style="margin-top:14px">Device font<select id="ui_font">
+      <option value="0">Arimo (Arial)</option>
+      <option value="1">Roboto</option>
+      <option value="2">Open Sans</option>
+      <option value="3">Noto Sans</option>
+      <option value="4">Source Sans 3</option>
+      <option value="5">IBM Plex Sans</option>
+      <option value="6">Fira Sans</option>
+      <option value="7">DejaVu Sans</option>
+    </select></label>
+  <p class="note" style="margin-top:4px">Changing the font repaints the screen on Save (no reboot).</p>
   <label class="chkrow" style="margin-top:10px">
     <input type="checkbox" id="secure">
     <span>Secure Tokens (hide saved tokens; reveal only what you type this session)</span>
@@ -272,6 +283,7 @@ function populate(c){
   const bf=document.getElementById('batt_full');if(bf)bf.value=c.batt_full??4200;
   const ds=document.getElementById('deep_sleep');if(ds)ds.checked=!!c.deep_sleep;
   const dk=document.getElementById('dark');if(dk)dk.checked=!!c.dark;
+  const uf=document.getElementById('ui_font');if(uf)uf.value=String(c.ui_font??0);
   const se=document.getElementById('secure');if(se)se.checked=!!c.secure;
   const lp=document.getElementById('left_prov');if(lp)lp.value=String(c.left_prov??0);
   const rp=document.getElementById('right_prov');if(rp)rp.value=String(c.right_prov??0);
@@ -294,6 +306,7 @@ function collect(){
   d.ref_sec=parseInt(document.getElementById('ref_sec').value);
   d.deep_sleep=document.getElementById('deep_sleep').checked;
   d.dark=document.getElementById('dark').checked;
+  d.ui_font=parseInt(document.getElementById('ui_font').value);
   d.secure=document.getElementById('secure').checked;
   d.left_prov=parseInt(document.getElementById('left_prov').value);
   d.right_prov=parseInt(document.getElementById('right_prov').value);

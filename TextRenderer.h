@@ -42,6 +42,11 @@ class TextRenderer {
   // if the font cannot be loaded.
   bool begin(EPaper& display);
 
+  // Switch the active typeface (OFR builds hot-reload without a reboot; clamps to
+  // range; no-op if already active). Index order matches the ui_font picker.
+  bool setFontIndex(int i);
+  static int fontCount();
+
   bool fontReady() const { return fontReady_; }
 
   // Draws `text` so the chosen anchor lands at (x, y). `sizeUnit` keeps the

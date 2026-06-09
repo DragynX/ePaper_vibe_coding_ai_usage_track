@@ -344,11 +344,12 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     const int w2 = renderer_.measureTextFace(s2, big);
     const int w3 = renderer_.measureTextFace(s3, small);
     const int w4 = renderer_.measureTextFace(s4, big);
-    int sx = w / 2 - (w0 + w1 + w2 + w3 + w4) / 2;
+    const int gap = 12;   // breathing room before "Next->" so the times don't touch
+    int sx = w / 2 - (w0 + w1 + w2 + w3 + w4 + gap) / 2;
     const int by = topY + 15;   // common bottom baseline; +2 for the taller glyphs
     renderer_.drawTextFace(s0, sx, by, big,   TextAlign::BottomLeft, kText, kBg); sx += w0;
     renderer_.drawTextFace(s1, sx, by, small, TextAlign::BottomLeft, kText, kBg); sx += w1;
-    renderer_.drawTextFace(s2, sx, by, big,   TextAlign::BottomLeft, kText, kBg); sx += w2;
+    renderer_.drawTextFace(s2, sx, by, big,   TextAlign::BottomLeft, kText, kBg); sx += w2 + gap;
     renderer_.drawTextFace(s3, sx, by, small, TextAlign::BottomLeft, kText, kBg); sx += w3;
     renderer_.drawTextFace(s4, sx, by, big,   TextAlign::BottomLeft, kText, kBg);
   }
