@@ -203,7 +203,10 @@ R"rawhtml(
     <input type="checkbox" id="ui_aa">
     <span>Smooth text (grayscale anti-aliasing) &#8212; off = crisp 1-bit</span>
   </label>
-  <p class="note" style="margin-top:4px">Font / smoothing changes repaint the screen on Save (no reboot).</p>
+  <label style="margin-top:10px">Text sharpness (smooth mode): <strong id="sharp_lbl">50</strong>
+    <input type="range" id="ui_sharp" min="0" max="100" step="5" oninput="document.getElementById('sharp_lbl').textContent=this.value" style="width:100%;margin-top:4px">
+  </label>
+  <p class="note" style="margin-top:4px">Higher = sharper/heavier edges, lower = softer. Font / smoothing / sharpness changes repaint on Save (no reboot).</p>
   <label class="chkrow" style="margin-top:10px">
     <input type="checkbox" id="secure">
     <span>Secure Tokens (hide saved tokens; reveal only what you type this session)</span>
@@ -295,6 +298,7 @@ function populate(c){
   const dk=document.getElementById('dark');if(dk)dk.checked=!!c.dark;
   const uf=document.getElementById('ui_font');if(uf)uf.value=String(c.ui_font??0);
   const ua=document.getElementById('ui_aa');if(ua)ua.checked=(c.ui_aa!==false);
+  const us=document.getElementById('ui_sharp');if(us){us.value=String(c.ui_sharp??50);document.getElementById('sharp_lbl').textContent=us.value;}
   const se=document.getElementById('secure');if(se)se.checked=!!c.secure;
   const lp=document.getElementById('left_prov');if(lp)lp.value=String(c.left_prov??0);
   const rp=document.getElementById('right_prov');if(rp)rp.value=String(c.right_prov??0);
@@ -319,6 +323,7 @@ function collect(){
   d.dark=document.getElementById('dark').checked;
   d.ui_font=parseInt(document.getElementById('ui_font').value);
   d.ui_aa=document.getElementById('ui_aa').checked;
+  d.ui_sharp=parseInt(document.getElementById('ui_sharp').value);
   d.secure=document.getElementById('secure').checked;
   d.left_prov=parseInt(document.getElementById('left_prov').value);
   d.right_prov=parseInt(document.getElementById('right_prov').value);

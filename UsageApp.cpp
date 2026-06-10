@@ -381,6 +381,7 @@ void UsageApp::begin() {
   ui_.setDarkMode(cfgStore_.darkMode());
   ui_.setFont(cfgStore_.uiFont());
   ui_.setSmoothing(cfgStore_.uiAa());
+  ui_.setSharpness(cfgStore_.uiSharp());
   // Cold boot: full splash. Wake: draw nothing — GRAY4 only refreshes cleanly
   // with a full update, so leave the persisted dashboard on screen during
   // WiFi+fetch and do one clean full refresh when the new data is ready.
@@ -451,6 +452,7 @@ void UsageApp::loop() {
     ui_.setDarkMode(cfgStore_.darkMode());
     ui_.setFont(cfgStore_.uiFont());
     ui_.setSmoothing(cfgStore_.uiAa());
+    ui_.setSharpness(cfgStore_.uiSharp());
     sysLog("[ui] settings applied (dark=%d), breakers reset",
            cfgStore_.darkMode() ? 1 : 0);
     if (ensureWiFi(10000)) {

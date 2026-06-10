@@ -49,6 +49,8 @@ class TextRenderer {
 
   // Edge rendering: true = 4-level grayscale anti-aliasing (smooth), false = crisp 1-bit.
   void setSmoothing(bool on);
+  // AA contrast 0..100 (0 = soft/linear edges, 100 = near-crisp). Smooth mode only.
+  void setSharpness(int v);
 
   bool fontReady() const { return fontReady_; }
 

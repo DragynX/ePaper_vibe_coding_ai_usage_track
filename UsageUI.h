@@ -46,6 +46,7 @@ class UsageUI {
 
   // Edge smoothing: true = grayscale anti-aliased, false = crisp 1-bit. Repaint after.
   void setSmoothing(bool on) { renderer_.setSmoothing(on); }
+  void setSharpness(int v)   { renderer_.setSharpness(v); }
 
   // One-line boot/splash reusing the header band (full clear + full refresh).
   void drawBoot(const String& statusText, const UiStatus& status, long nowEpoch);

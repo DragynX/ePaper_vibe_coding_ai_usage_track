@@ -100,6 +100,7 @@ EPaper* g_disp = nullptr;
 uint16_t g_ink = 0;             // real panel gray index to paint glyph ink with
 uint16_t g_bg  = 0;             // local background gray index (for smooth AA blend)
 bool     g_aa  = true;          // true = 4-level grayscale AA, false = crisp 1-bit
+int      g_sharp = 50;          // 0..100 AA contrast: 0 = soft/linear, 100 = near-crisp
 
 // Selectable typefaces (order MUST match the ui_font <select> in SettingsServer).
 struct UmFont { const char* name;
@@ -137,9 +138,14 @@ static inline uint8_t ofrLum(uint16_t c) { return (c >> 5) & 0x3F; }
 // One covered pixel: crisp = ink-or-skip; smooth = gray ramp index bg..ink.
 static inline void ofrPaint(int32_t px, int32_t py, uint16_t c) {
   if (!g_disp) return;
-  const uint8_t lum = ofrLum(c);
+  const int lum = ofrLum(c);          // 0..63 coverage
   if (g_aa) {
-    const int idx = (int)g_bg + (((int)g_ink - (int)g_bg) * lum + 31) / 63;
+    // Contrast curve around the midpoint: steepen coverage so edges snap toward
+    // ink (sharper) as g_sharp rises. ksc 64 (linear) .. ~564 (near-crisp).
+    const int ksc = 64 + g_sharp * 5;
+    int t = ((lum - 32) * ksc) / 64 + 32;
+    if (t < 0) t = 0; else if (t > 63) t = 63;
+    const int idx = (int)g_bg + (((int)g_ink - (int)g_bg) * t + 31) / 63;
     g_disp->drawPixel(px, py, (uint16_t)idx);
   } else if (lum >= UM_OFR_THRESH) {
     g_disp->drawPixel(px, py, g_ink);
@@ -314,6 +320,14 @@ void TextRenderer::setSmoothing(bool on) {
   g_aa = on;
 #else
   (void)on;
+#endif
+}
+
+void TextRenderer::setSharpness(int v) {
+#if !UM_LANG_ZH && UM_USE_OFR
+  g_sharp = v < 0 ? 0 : (v > 100 ? 100 : v);
+#else
+  (void)v;
 #endif
 }
 
