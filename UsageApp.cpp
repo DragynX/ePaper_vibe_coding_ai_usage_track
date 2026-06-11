@@ -25,6 +25,7 @@ void dragynWifiApplyWpa3Hardening(void) {}
 namespace usage_monitor {
 
 static const long kSanityFloorEpoch = 1577836800L;
+static const unsigned long kAwakeSampleMs = 60000UL;  // awake battery sample cadence
 
 // Green button (GPIO3) is the EXT1 deep-sleep wake source (active-low).
 #define UM_BTN_WAKE GPIO_NUM_3
@@ -419,10 +420,12 @@ void UsageApp::begin() {
                   [this]() { return sleepInSec(); },         // seconds until sleep
                   [this]() { return (int)bootId(); },        // session token (wake count)
                   &readBatteryMv,                            // actual battery mV
-                  [this]() -> int {                          // est hours on battery, -1 = n/a
-                    if (!cfgStore_.deepSleepEnabled()) return -1;
-                    const float d = battery_tracker_get_days_remaining(cfgStore_.refreshSec());
-                    return d >= 0.0f ? (int)(d * 24.0f + 0.5f) : -1;
+                  [this]() -> int {       // est hours on batt; -2 = calibrating, -3 = charging
+                    const float d = cfgStore_.deepSleepEnabled()
+                        ? battery_tracker_get_days_remaining(cfgStore_.refreshSec())
+                        : battery_tracker_get_days_remaining_awake();
+                    if (d >= 0.0f) return (int)(d * 24.0f + 0.5f);
+                    return battery_is_charging() ? -3 : -2;
                   },
                   [this](int on, int font, int dark, int all, int crisp, int sz) {  // font-test
                     onFontTest(on, font, dark, all, crisp, sz);
@@ -514,6 +517,22 @@ void UsageApp::loop() {
     sysLog("[sleep] awake, sleeps in %ds", sleepInSec());
   }
 
+  // Awake battery sampling (deep-sleep mode samples in enterDeepSleep). Sample
+  // SOC+mV every minute, >=10 s after boot per the Seeed ADC-settle rule. The mV
+  // trend (not the unreliable HWCDC plug state) decides charging vs discharging.
+  if (!cfgStore_.deepSleepEnabled() && nowMs >= 10000UL &&
+      nowMs - lastBattSampleMs_ >= kAwakeSampleMs) {
+    lastBattSampleMs_ = nowMs;
+    const long ep  = now();
+    const int  soc = readBatteryPercent();   // also refreshes g_battMv
+    const int  mv  = readBatteryMv();
+    battery_tracker_update_awake((float)soc, mv,
+        ep >= kSanityFloorEpoch ? (uint32_t)ep : 0);
+    sysLog("[batt] awake soc=%d mv=%d days=%.1f chg=%d", soc, mv,
+           battery_tracker_get_days_remaining_awake(),
+           battery_is_charging() ? 1 : 0);
+  }
+
   // Deep sleep (when enabled): on an explicit web "Sleep", or after the awake
   // window elapses, sleep until the timer or green button wakes us. Use a fresh
   // millis() and a SIGNED compare — `ms` (captured at loop top) can be stale after
@@ -587,11 +606,13 @@ void UsageApp::enterDeepSleep() {
   //     ADC) and >=10 s since wake (Seeed timing rule). Update the estimate.
   if (millis() < 10000UL) delay(10000UL - millis());
   const float soc = (float)readBatteryPercent();   // existing reader — unchanged
+  battery_charging_update(readBatteryMv());         // mV trend -> charge/discharge
   const bool btnWake = (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT1);
   battery_tracker_update(soc, btnWake);
-  sysLog("[batt] cycle=%u btnwakes=%u soc=%.0f days=%.1f",
+  sysLog("[batt] cycle=%u btnwakes=%u soc=%.0f mv=%d days=%.1f chg=%d",
          battery_tracker_get_cycles(), battery_tracker_get_button_wakes(), soc,
-         battery_tracker_get_days_remaining(sec));
+         readBatteryMv(), battery_tracker_get_days_remaining(sec),
+         battery_is_charging() ? 1 : 0);
 
   // 4. Park the LED off and hold the pin so it doesn't float during sleep.
   digitalWrite(UM_LED_PIN, HIGH);   // active-low: HIGH = off
@@ -659,13 +680,19 @@ UiStatus UsageApp::currentStatus() {
   // USB / external power show "Charging" instead. No reliable VBUS pin on E1001,
   // so detect external power as: USB physically plugged (HWCDC) OR the tracker
   // saw no SOC drop after several cycles (battery being held).
+  // Runtime estimate, same gate in both modes: a real SOC drop proves discharge
+  // (estimate wins); else the mV trend decides "Charging" vs "Calibrating…". No
+  // USB flag — HWCDC isPlugged() is unreliable on the E1001.
   const bool deep = cfgStore_.deepSleepEnabled();
   const float days = deep ? battery_tracker_get_days_remaining(cfgStore_.refreshSec())
-                          : -2.0f;
-  const uint32_t cyc = battery_tracker_get_cycles();
-  const bool draining = (days >= 0.0f);
-  s.batteryDays = days;
-  s.batteryCharging = !draining && (Serial.isPlugged() || (deep && cyc >= 3));
+                          : battery_tracker_get_days_remaining_awake();
+  if (days >= 0.0f) {
+    s.batteryDays = days;   s.batteryCharging = false;          // estimate ready
+  } else if (battery_is_charging()) {
+    s.batteryDays = -2.0f;  s.batteryCharging = true;           // mV rising
+  } else {
+    s.batteryDays = -1.0f;  s.batteryCharging = false;          // calibrating
+  }
   s.deepSleepOn = deep;   // header moon indicator
   return s;
 }

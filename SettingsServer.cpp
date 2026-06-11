@@ -499,6 +499,10 @@ async function loadSt(){
       battStr=d.batt+'% | '+(d.batt_mv>=0?d.batt_mv:'?')+'mv';
       if(d.batt_days!=null&&d.batt_days>=0)
         battStr+=' | Est. '+Math.floor(d.batt_days/24)+' days '+(d.batt_days%24)+' hours on battery';
+      else if(d.batt_days==-3)
+        battStr+=' | Charging';
+      else if(d.batt_days==-2)
+        battStr+=' | Calibrating...';
     }
     const rows=[
       ['IP Address',d.ip??'?'],
@@ -790,7 +794,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
     const int sleepIn = sleepInSec_ ? sleepInSec_() : -1;  // passive: does NOT extend
     const int boot = bootId_ ? bootId_() : 0;
     const int rssi = WiFi.isConnected() ? WiFi.RSSI() : 0;
-    const int battDays = battDays_ ? battDays_() : -1;   // est hours on battery, -1 = n/a
+    const int battDays = battDays_ ? battDays_() : -1;   // est hrs; -1=n/a -2=calibrating -3=charging
     String json = "{\"ip\":\"" + ip + "\","
                   "\"ssid\":\"" + ssid + "\","
                   "\"rssi\":" + String(rssi) + ","

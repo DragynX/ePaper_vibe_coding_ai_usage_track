@@ -66,6 +66,7 @@ class UsageApp {
   unsigned long awakeStartMs_      = 0;   // when the current awake window started
   unsigned long awakeWindowMs_     = 0;   // how long to stay awake before sleeping
   unsigned long lastSleepTickMs_   = 0;   // last [sleep] countdown tick log
+  unsigned long lastBattSampleMs_  = 0;   // last awake battery-runtime sample
   long          lastFetchEpoch_    = 0;   // wall-clock of the last successful refresh
   volatile bool sleepNow_          = false;  // web "Sleep" button requested
   bool          timeSynced_        = false;

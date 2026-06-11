@@ -404,6 +404,8 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
         battNote = dbuf;
       } else if (st.batteryCharging) {
         battNote = "Charging";
+      } else if (st.batteryDays >= -1.0f) {   // -1 = calibrating (-2 stays blank)
+        battNote = "Calibrating...";
       }
       if (battNote) {
         // Flush to the battery icon's right edge.
