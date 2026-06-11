@@ -47,6 +47,10 @@ class UsageUI {
   // Edge smoothing: true = grayscale anti-aliased, false = crisp 1-bit. Repaint after.
   void setSmoothing(bool on) { renderer_.setSmoothing(on); }
   void setSharpness(int v)   { renderer_.setSharpness(v); }
+  // Text weight: bias AA coverage toward ink so thin small text reads dark. Repaint after.
+  void setTextWeight(int v)  { renderer_.setWeight(v); }
+  // Small text: crisp baked bitmap vs smooth vector. Repaint after.
+  void setSmallTextCrisp(bool on) { renderer_.setSmallCrisp(on); }
 
   // One-line boot/splash reusing the header band (full clear + full refresh).
   void drawBoot(const String& statusText, const UiStatus& status, long nowEpoch);
@@ -54,7 +58,18 @@ class UsageUI {
   // Main two-provider dashboard. nowEpoch (UTC) drives the reset countdowns.
   void drawDashboard(const UsageSnapshot& snap, const UiStatus& status, long nowEpoch);
 
+  // Full-screen font-testing playground (runtime only). Renders the Text Block at
+  // `px` in three modes (Smooth / Crisp baked / both), separated by DejaVu dividers.
+  // `ip` fills the <device IP address> token in the sample text.
+  void drawFontTest(int fontIdx, int px, bool dark, const String& ip);
+
+  // Full-screen "all fonts" view: every font on one line at `px` (col1 phrase, col2 name).
+  // crisp = phrase rendered solid 1-bit (hard black) vs smooth anti-aliased.
+  void drawAllFonts(int px, bool dark, bool crisp);
+
  private:
+  // One full-width ASCII divider (random of 10) in DejaVu Sans 12px at row y.
+  void drawDivider(int y);
   EPaper display_;
   TextRenderer renderer_;
 

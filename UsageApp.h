@@ -76,6 +76,21 @@ class UsageApp {
   uint32_t bootId();           // RTC wake counter; changes every wake (session token)
   volatile bool redrawPending_     = false;  // set by settings save, handled in loop()
 
+  // Font Testing playground — runtime only, never persisted (off after reboot).
+  // Web controls call onFontTest() (async task) which only flips ftRedraw_; the
+  // repaint happens in loop(). While fontTestOn_, the playground owns the screen
+  // (periodic refresh + settings repaint are suppressed).
+  // on always 0/1; font/dark/all/crisp <0 mean "leave unchanged" (dark/all/crisp apply on Save only).
+  void onFontTest(int on, int font, int dark, int all, int crisp, int sizeIdx);
+  static const int kTestSizes[11];
+  volatile bool ftRedraw_   = false;
+  bool          fontTestOn_ = false;
+  int           ftFont_     = 9;     // test typeface index (Open Sans)
+  int           ftSizeIdx_  = 0;     // index into kTestSizes
+  bool          ftDark_     = false;
+  bool          ftAllView_  = false; // true = all-fonts list, false = single-font 3-mode view
+  bool          ftCrisp_    = false; // All Font View: true = crisp 1-bit (hard black), false = smooth AA
+
   // Per-side circuit breaker: after 2 consecutive fetch failures a side is
   // stopped (no more network calls) until the next settings save. Reason text
   // is shown on screen.

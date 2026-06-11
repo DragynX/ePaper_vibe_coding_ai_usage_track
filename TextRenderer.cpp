@@ -83,6 +83,7 @@ const GFXfont* toFreeFont(TextFace face) {
 // ---- English build via OpenFontRender (Latin TTF, any size) ----------------
 #include "OpenFontRender.h"
 #include "FontData.h"           // um_f0_reg/_bold .. um_f7_reg/_bold (+ _len)
+#include "OpenSansGFX.h"        // baked Open Sans bitmaps: OpenSans_R10/R13/B13/B17
 
 // Inert link stubs for OFR's file-based path (we load from memory only).
 FT_FILE *OFR_fopen(const char *, const char *) { return nullptr; }
@@ -101,6 +102,9 @@ uint16_t g_ink = 0;             // real panel gray index to paint glyph ink with
 uint16_t g_bg  = 0;             // local background gray index (for smooth AA blend)
 bool     g_aa  = true;          // true = 4-level grayscale AA, false = crisp 1-bit
 int      g_sharp = 50;          // 0..100 AA contrast: 0 = soft/linear, 100 = near-crisp
+int      g_weight = 45;         // 0..100 text weight: bias coverage toward ink so thin
+                                // small-text strokes render dark (0 = off). Smooth mode only.
+bool     g_smallCrisp = true;   // small text: true = crisp baked bitmap, false = vector (OFR/AA)
 
 // Selectable typefaces (order MUST match the ui_font <select> in SettingsServer).
 struct UmFont { const char* name;
@@ -133,6 +137,7 @@ constexpr int UM_PX_PER_UNIT = 8;
 //  Crisp mode: threshold to 1-bit (paint ink above the cutoff).
 //  Smooth mode: interpolate along the panel's gray ramp from bg->ink for soft edges.
 constexpr uint8_t UM_OFR_THRESH = 30;   // crisp cutoff (~45%); lower = bolder strokes
+constexpr int     UM_AA_FLOOR   = 6;    // smooth mode: skip <~10% fringe for the weight bias
 static inline uint8_t ofrLum(uint16_t c) { return (c >> 5) & 0x3F; }
 
 // One covered pixel: crisp = ink-or-skip; smooth = gray ramp index bg..ink.
@@ -140,10 +145,17 @@ static inline void ofrPaint(int32_t px, int32_t py, uint16_t c) {
   if (!g_disp) return;
   const int lum = ofrLum(c);          // 0..63 coverage
   if (g_aa) {
+    // Text weight: bias coverage toward full ink so thin small-text strokes
+    // render dark instead of fading to light gray. Gated by UM_AA_FLOOR so the
+    // faint outer fringe is left alone (no halo / edge fattening). weight 0 = off.
+    int cov = lum;
+    if (g_weight > 0 && cov >= UM_AA_FLOOR) {
+      cov += ((63 - cov) * g_weight) / 100;
+    }
     // Contrast curve around the midpoint: steepen coverage so edges snap toward
     // ink (sharper) as g_sharp rises. ksc 64 (linear) .. ~564 (near-crisp).
     const int ksc = 64 + g_sharp * 5;
-    int t = ((lum - 32) * ksc) / 64 + 32;
+    int t = ((cov - 32) * ksc) / 64 + 32;
     if (t < 0) t = 0; else if (t > 63) t = 63;
     const int idx = (int)g_bg + (((int)g_ink - (int)g_bg) * t + 31) / 63;
     g_disp->drawPixel(px, py, (uint16_t)idx);
@@ -179,6 +191,39 @@ OpenFontRender& faceOfr(TextFace f) {
     case TextFace::SansBold48:
     case TextFace::MonoBold12: return g_ofrBold;
     default:                  return g_ofrReg;   // Bitmap, Sans7, Sans9
+  }
+}
+
+// Dashboard small faces render as crisp baked Lexend bitmaps (exact px); large faces
+// (SansBold18/24/36/48) return nullptr and stay vector (OpenFontRender).
+const GFXfont* faceGfx(TextFace f) {
+  switch (f) {
+    case TextFace::Sans7:      return &Lexend_R10;
+    case TextFace::Sans9:      return &Lexend_R13;
+    case TextFace::SansBold9:  return &Lexend_B13;
+    case TextFace::SansBold12: return &Lexend_B17;
+    case TextFace::MonoBold12: return &Lexend_B17;
+    default:                   return nullptr;
+  }
+}
+
+// Open Sans baked at an exact pixel size (full ladder); nullptr if not baked.
+const GFXfont* bakedOpenSans(int px, bool bold) {
+  switch (px) {
+    case 6:  return bold ? &OpenSans_B6  : &OpenSans_R6;
+    case 7:  return bold ? &OpenSans_B7  : &OpenSans_R7;
+    case 8:  return bold ? &OpenSans_B8  : &OpenSans_R8;
+    case 10: return bold ? &OpenSans_B10 : &OpenSans_R10;
+    case 12: return bold ? &OpenSans_B12 : &OpenSans_R12;
+    case 13: return bold ? &OpenSans_B13 : &OpenSans_R13;
+    case 14: return bold ? &OpenSans_B14 : &OpenSans_R14;
+    case 16: return bold ? &OpenSans_B16 : &OpenSans_R16;
+    case 17: return bold ? &OpenSans_B17 : &OpenSans_R17;
+    case 18: return bold ? &OpenSans_B18 : &OpenSans_R18;
+    case 24: return bold ? &OpenSans_B24 : &OpenSans_R24;
+    case 30: return bold ? &OpenSans_B30 : &OpenSans_R30;
+    case 34: return bold ? &OpenSans_B34 : &OpenSans_R34;
+    default: return nullptr;
   }
 }
 
@@ -331,6 +376,98 @@ void TextRenderer::setSharpness(int v) {
 #endif
 }
 
+void TextRenderer::setWeight(int v) {
+#if !UM_LANG_ZH && UM_USE_OFR
+  g_weight = v < 0 ? 0 : (v > 100 ? 100 : v);
+#else
+  (void)v;
+#endif
+}
+
+void TextRenderer::setSmallCrisp(bool on) {
+#if !UM_LANG_ZH && UM_USE_OFR
+  g_smallCrisp = on;
+#else
+  (void)on;
+#endif
+}
+
+void TextRenderer::drawGfx(const GFXfont* font, const String& text, int x, int y,
+                           TextAlign align, uint16_t color, uint16_t bg) {
+#if !UM_LANG_ZH
+  if (!display_ || !font) return;
+  // GFXfonts position by the text baseline; TFT_eSPI's datum logic applies the
+  // baseline offset for us (unlike OFR which uses a top-left origin).
+  display_->setFreeFont(font);
+  display_->setTextSize(1);
+  display_->setTextColor(color, bg, true);
+  display_->setTextDatum(toTftDatum(align));
+  display_->drawString(text, x, y);
+  display_->setFreeFont(nullptr);
+#else
+  (void)font; (void)text; (void)x; (void)y; (void)align; (void)color; (void)bg;
+#endif
+}
+
+int TextRenderer::gfxWidth(const GFXfont* font, const String& text) {
+#if !UM_LANG_ZH
+  if (!display_ || !font) return 0;
+  display_->setFreeFont(font);
+  display_->setTextSize(1);
+  const int w = static_cast<int>(display_->textWidth(text));
+  display_->setFreeFont(nullptr);
+  return w;
+#else
+  (void)font; (void)text;
+  return 0;
+#endif
+}
+
+// ---- Font Testing playground helpers ----
+
+void TextRenderer::drawTextPx(const String& text, int x, int y, int px,
+                              TextAlign align, uint16_t color, uint16_t bg, bool bold) {
+#if !UM_LANG_ZH && UM_USE_OFR
+  if (!display_ || !fontReady_) return;
+  ofrDraw(bold ? g_ofrBold : g_ofrReg, text, x, y, px, align, color, bg);
+#else
+  (void)text; (void)x; (void)y; (void)px; (void)align; (void)color; (void)bg; (void)bold;
+#endif
+}
+
+bool TextRenderer::drawTextPxBaked(const String& text, int x, int y, int px,
+                                   TextAlign align, uint16_t color, uint16_t bg, bool bold) {
+#if !UM_LANG_ZH && UM_USE_OFR
+  const GFXfont* f = bakedOpenSans(px, bold);
+  if (!f) return false;
+  drawGfx(f, text, x, y, align, color, bg);
+  return true;
+#else
+  (void)text; (void)x; (void)y; (void)px; (void)align; (void)color; (void)bg; (void)bold;
+  return false;
+#endif
+}
+
+int TextRenderer::textWidthPx(const String& text, int px, bool bold) {
+#if !UM_LANG_ZH && UM_USE_OFR
+  if (!display_ || !fontReady_) return 0;
+  return ofrWidth(bold ? g_ofrBold : g_ofrReg, text, px);
+#else
+  (void)text; (void)px; (void)bold;
+  return 0;
+#endif
+}
+
+const char* TextRenderer::fontName(int idx) {
+#if !UM_LANG_ZH && UM_USE_OFR
+  if (idx < 0 || idx >= kFontCount) return "";
+  return kFonts[idx].name;
+#else
+  (void)idx;
+  return "";
+#endif
+}
+
 void TextRenderer::drawText(const String& text, int x, int y, int sizeUnit,
                             TextAlign align, uint16_t color, uint16_t bg)
 {
@@ -410,7 +547,10 @@ void TextRenderer::drawTextFace(const String& text, int x, int y, TextFace face,
 #else
 #if UM_USE_OFR
   if (fontReady_) {
-    ofrDraw(faceOfr(face), text, x, y, facePx(face), align, color, bg);
+    // Small faces -> crisp baked bitmap (when enabled); large faces stay vector.
+    const GFXfont* gf = g_smallCrisp ? faceGfx(face) : nullptr;
+    if (gf) drawGfx(gf, text, x, y, align, color, bg);
+    else    ofrDraw(faceOfr(face), text, x, y, facePx(face), align, color, bg);
     return;
   }
 #endif
@@ -460,7 +600,10 @@ int TextRenderer::measureTextFace(const String& text, TextFace face)
   return measureText(text, sizeUnit);
 #else
 #if UM_USE_OFR
-  if (fontReady_) return ofrWidth(faceOfr(face), text, facePx(face));
+  if (fontReady_) {
+    const GFXfont* gf = g_smallCrisp ? faceGfx(face) : nullptr;
+    return gf ? gfxWidth(gf, text) : ofrWidth(faceOfr(face), text, facePx(face));
+  }
 #endif
   const GFXfont* font = toFreeFont(face);
   if (!font) return measureText(text, 2);

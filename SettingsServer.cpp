@@ -27,6 +27,7 @@ h1{font-size:1.1em;margin-bottom:12px;color:#333}
 .tab{padding:6px 14px;cursor:pointer;border-radius:4px;background:#ccc;border:none;font-size:13px;color:#333;font-family:inherit}
 .tab.on{background:#444;color:#fff}
 .pane{display:none}.pane.on{display:block}
+body:not(.adv) .adv-only{display:none}body.adv .simple-only{display:none}
 label{display:block;margin-top:8px;font-size:12px;color:#555;font-weight:600}
 input[type=text],input[type=number],select,textarea{width:100%;padding:5px 7px;border:1px solid #bbb;border-radius:3px;font-size:13px;background:#fff;font-family:inherit}
 textarea{font-family:monospace;font-size:11px;height:72px;resize:vertical}
@@ -66,6 +67,7 @@ R"rawhtml(
   <button class="tab" onclick="go(1)">Display</button>
   <button class="tab" onclick="go(2)">System</button>
   <button class="tab" onclick="go(3)">Status</button>
+  <button class="tab adv-only" onclick="go(4)">Font Testing</button>
   <span id="sleepTimer" class="sleepclk"></span>
 </div>
 
@@ -147,7 +149,8 @@ R"rawhtml(
 </div>
 
 <div id="p2" class="pane">
-  <label style="margin-top:0">Timezone
+  <label class="chkrow" style="margin-top:0"><input type="checkbox" id="adv" onchange="toggleAdv()"><span>Advanced (show all options)</span></label>
+  <label style="margin-top:12px">Timezone
     <select id="tz_sel" onchange="onTzSel(this.value)">
       <option value="UTC0">UTC</option>
       <option value="EST5EDT,M3.2.0,M11.1.0">US Eastern</option>
@@ -178,7 +181,7 @@ R"rawhtml(
   <label style="margin-top:12px">Refresh Interval: <strong id="ref_lbl">5 min</strong>
     <input type="range" id="ref_sec" min="300" max="3600" step="60" oninput="updRef(this.value)" style="width:100%;margin-top:4px">
   </label>
-  <label style="margin-top:12px">Battery full (mV)<input type="number" id="batt_full" min="3500" max="5000" step="10" placeholder="4200"></label>
+  <label class="adv-only" style="margin-top:12px">Battery full (mV)<input type="number" id="batt_full" min="3500" max="5000" step="10" placeholder="4200"></label>
   <label class="chkrow" style="margin-top:14px">
     <input type="checkbox" id="dark">
     <span>Dark mode (screen)</span>
@@ -199,14 +202,25 @@ R"rawhtml(
       <option value="12">IBM Plex Sans</option>
       <option value="13">Fira Sans</option>
     </select></label>
-  <label class="chkrow" style="margin-top:10px">
-    <input type="checkbox" id="ui_aa">
+  <label class="chkrow simple-only" style="margin-top:10px">
+    <input type="checkbox" id="ui_hardblack" onchange="syncHB()">
+    <span>Hard Black (Crisp, no antialias)</span>
+  </label>
+  <label class="chkrow adv-only" style="margin-top:10px">
+    <input type="checkbox" id="ui_aa" onchange="syncAA()">
     <span>Smooth text (grayscale anti-aliasing) &#8212; off = crisp 1-bit</span>
   </label>
-  <label style="margin-top:10px">Text sharpness (smooth mode): <strong id="sharp_lbl">50</strong>
+  <label class="chkrow adv-only" style="margin-top:10px">
+    <input type="checkbox" id="ui_smcrisp">
+    <span>Crisp small text (baked bitmap) &#8212; off = smooth vector. Big numbers/titles unaffected.</span>
+  </label>
+  <label class="adv-only" style="margin-top:10px">Text sharpness (smooth mode): <strong id="sharp_lbl">50</strong>
     <input type="range" id="ui_sharp" min="0" max="100" step="5" oninput="document.getElementById('sharp_lbl').textContent=this.value" style="width:100%;margin-top:4px">
   </label>
-  <p class="note" style="margin-top:4px">Higher = sharper/heavier edges, lower = softer. Font / smoothing / sharpness changes repaint on Save (no reboot).</p>
+  <label class="adv-only" style="margin-top:10px">Text weight &#8212; small-text darkness (smooth mode): <strong id="weight_lbl">45</strong>
+    <input type="range" id="ui_weight" min="0" max="100" step="5" oninput="document.getElementById('weight_lbl').textContent=this.value" style="width:100%;margin-top:4px">
+  </label>
+  <p class="note adv-only" style="margin-top:4px">Higher = sharper/heavier edges, lower = softer. Text weight darkens thin small text (0 = off). Font / smoothing / sharpness / weight changes repaint on Save (no reboot).</p>
   <label class="chkrow" style="margin-top:10px">
     <input type="checkbox" id="secure">
     <span>Secure Tokens (hide saved tokens; reveal only what you type this session)</span>
@@ -224,6 +238,36 @@ R"rawhtml(
 
 <div id="p3" class="pane">
   <div class="sbox" id="st_box"><div class="srow"><span>Loading&#8230;</span></div></div>
+</div>
+
+<div id="p4" class="pane">
+  <label class="chkrow"><input type="checkbox" id="ft_on" onchange="ftOn()"><span>Font Testing on Device Screen &#8212; not saved; off after reboot</span></label>
+  <div id="ft_sub" style="display:none">
+  <label class="chkrow" style="margin-top:10px"><input type="checkbox" id="ft_allview" onchange="ftAllView()"><span>All Font View (every font, one line) &#8212; applies on Save</span></label>
+  <label id="ft_fontrow" style="margin-top:14px">Test font<select id="ft_font" onchange="ftSendLive()">
+      <option value="0">Arimo (Arial)</option>
+      <option value="1">DejaVu Sans</option>
+      <option value="2">Atkinson Hyperlegible</option>
+      <option value="3">B612</option>
+      <option value="4">Lexend</option>
+      <option value="5">Hack (mono)</option>
+      <option value="6">JetBrains Mono</option>
+      <option value="7">Carlito</option>
+      <option value="8">Roboto</option>
+      <option value="9">Open Sans</option>
+      <option value="10">Noto Sans</option>
+      <option value="11">Source Sans 3</option>
+      <option value="12">IBM Plex Sans</option>
+      <option value="13">Fira Sans</option>
+    </select></label>
+  <div id="ft_crisprow" style="display:none"><label class="chkrow" style="margin-top:10px"><input type="checkbox" id="ft_crisp"><span>Crisp text (hard black, no anti-alias) &#8212; applies on Save</span></label></div>
+  <label class="chkrow" style="margin-top:10px"><input type="checkbox" id="ft_dark"><span>Dark mode (test screen) &#8212; applies on Save</span></label>
+  <div class="row" style="margin-top:12px">
+    <button class="btn" onclick="ftPage(-1)">&#9664; Previous Page</button>
+    <button class="btn" onclick="ftPage(1)">Next Page &#9654;</button>
+  </div>
+  <p class="note" id="ft_now" style="margin-top:8px">Off</p>
+  </div>
 </div>
 
 <div class="row">
@@ -246,7 +290,9 @@ R"rawhtml(
 </div></div>
 
 <script>
-const NPANE=4;
+const NPANE=5;
+const FT_SIZES=[6,7,8,10,12,14,16,18,24,30,34];
+let ftSizeIdx=0;
 let curTab=0;
 function go(n){
   curTab=n;
@@ -255,6 +301,55 @@ function go(n){
     document.querySelectorAll('.tab')[i].classList.toggle('on',i===n);
   }
   if(n===3)loadSt();
+}
+function toggleAdv(){
+  const on=document.getElementById('adv').checked;
+  document.body.classList.toggle('adv',on);
+  try{localStorage.setItem('um_adv',on?'1':'0');}catch(e){}
+}
+// Hard Black and Smooth Text are the same ui_aa bool (opposite polarity); keep in sync.
+function syncHB(){document.getElementById('ui_aa').checked=!document.getElementById('ui_hardblack').checked;}
+function syncAA(){document.getElementById('ui_hardblack').checked=!document.getElementById('ui_aa').checked;}
+function ftLabel(){
+  const on=document.getElementById('ft_on').checked;
+  const all=document.getElementById('ft_allview').checked;
+  const sel=document.getElementById('ft_font');
+  const what=all?'All Fonts':(sel?sel.selectedOptions[0].text:'');
+  document.getElementById('ft_now').textContent=on
+    ?('On — '+what+'  '+FT_SIZES[ftSizeIdx]+'px  (Dark + All Font View apply on Save)')
+    :'Off';
+}
+function ftOn(){
+  document.getElementById('ft_sub').style.display=document.getElementById('ft_on').checked?'block':'none';
+  ftSendLive();
+}
+function ftAllView(){
+  const all=document.getElementById('ft_allview').checked;
+  document.getElementById('ft_fontrow').style.display=all?'none':'block';
+  document.getElementById('ft_crisprow').style.display=all?'block':'none';
+  if(all)ftSizeIdx=FT_SIZES.indexOf(14);   // All Font View starts at 14px (applies on Save)
+  ftLabel();
+}
+function ftPage(d){
+  if(!document.getElementById('ft_on').checked)return;
+  ftSizeIdx=Math.max(0,Math.min(FT_SIZES.length-1,ftSizeIdx+d));
+  ftSendLive();
+}
+async function ftSendLive(){   // size/font/on apply immediately (dark + view do NOT)
+  const on=document.getElementById('ft_on').checked?1:0;
+  const font=parseInt(document.getElementById('ft_font').value);
+  ftLabel();
+  const u='/api/fonttest?on='+on+'&font='+font+'&size_idx='+ftSizeIdx;
+  try{await fetch(u,{method:'POST'});}catch(e){}
+}
+async function ftSendSave(){   // Save Settings applies dark + All Font View
+  const font=parseInt(document.getElementById('ft_font').value);
+  const dark=document.getElementById('ft_dark').checked?1:0;
+  const all=document.getElementById('ft_allview').checked?1:0;
+  const crisp=document.getElementById('ft_crisp').checked?1:0;
+  const u='/api/fonttest?on=1&font='+font+'&size_idx='+ftSizeIdx+'&dark='+dark+'&all='+all+'&crisp='+crisp;
+  try{await fetch(u,{method:'POST'});}catch(e){}
+  ftLabel();
 }
 function updRef(v){
   document.getElementById('ref_lbl').textContent=Math.round(v/60)+' min';
@@ -297,8 +392,12 @@ function populate(c){
   const ds=document.getElementById('deep_sleep');if(ds)ds.checked=!!c.deep_sleep;
   const dk=document.getElementById('dark');if(dk)dk.checked=!!c.dark;
   const uf=document.getElementById('ui_font');if(uf)uf.value=String(c.ui_font??0);
+  const ftf=document.getElementById('ft_font');if(ftf)ftf.value=String(c.ui_font??4);
   const ua=document.getElementById('ui_aa');if(ua)ua.checked=(c.ui_aa!==false);
+  const hb=document.getElementById('ui_hardblack');if(hb)hb.checked=(c.ui_aa===false);
+  const usc=document.getElementById('ui_smcrisp');if(usc)usc.checked=(c.ui_smcrisp!==false);
   const us=document.getElementById('ui_sharp');if(us){us.value=String(c.ui_sharp??50);document.getElementById('sharp_lbl').textContent=us.value;}
+  const uw=document.getElementById('ui_weight');if(uw){uw.value=String(c.ui_weight??45);document.getElementById('weight_lbl').textContent=uw.value;}
   const se=document.getElementById('secure');if(se)se.checked=!!c.secure;
   const lp=document.getElementById('left_prov');if(lp)lp.value=String(c.left_prov??0);
   const rp=document.getElementById('right_prov');if(rp)rp.value=String(c.right_prov??0);
@@ -323,7 +422,9 @@ function collect(){
   d.dark=document.getElementById('dark').checked;
   d.ui_font=parseInt(document.getElementById('ui_font').value);
   d.ui_aa=document.getElementById('ui_aa').checked;
+  d.ui_smcrisp=document.getElementById('ui_smcrisp').checked;
   d.ui_sharp=parseInt(document.getElementById('ui_sharp').value);
+  d.ui_weight=parseInt(document.getElementById('ui_weight').value);
   d.secure=document.getElementById('secure').checked;
   d.left_prov=parseInt(document.getElementById('left_prov').value);
   d.right_prov=parseInt(document.getElementById('right_prov').value);
@@ -360,6 +461,7 @@ async function doSave(){
       if(curTab===0){setMsg('Saved! Testing tokens…','green');pollCredFor(30000);}
       else setMsg('Saved!','green');
       pollSleep();   // the save extended the window; refresh the countdown now
+      if(document.getElementById('ft_on').checked)ftSendSave();  // apply Dark + All Font View
     }
     else setMsg('Error '+r.status,'red');
   }catch(e){setMsg('Failed','red');}
@@ -523,6 +625,7 @@ async function pollSleep(){
     sleepRemain=0;renderTimer();sModal.classList.remove('on');
   }
 }
+(function(){try{var a=localStorage.getItem('um_adv')==='1';var c=document.getElementById('adv');if(c)c.checked=a;document.body.classList.toggle('adv',a);}catch(e){}})();
 setInterval(pollSleep,5000);pollSleep();
 </script>
 </body>
@@ -568,7 +671,8 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
                            std::function<int()> sleepInSec,
                            std::function<int()> bootId,
                            int (*battMv)(),
-                           std::function<int()> battDays) {
+                           std::function<int()> battDays,
+                           std::function<void(int,int,int,int,int,int)> onFontTest) {
   cfg_ = cfg;
   battPct_ = battPct;
   battMv_ = battMv;
@@ -579,6 +683,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
   onSleepNow_ = onSleepNow;
   sleepInSec_ = sleepInSec;
   bootId_ = bootId;
+  onFontTest_ = onFontTest;
 
   // GET / → settings page
   server->on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
@@ -646,6 +751,16 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
   // POST /api/sleepnow → user chose Sleep: enter deep sleep now
   server->on("/api/sleepnow", HTTP_POST, [this](AsyncWebServerRequest* req) {
     if (onSleepNow_) onSleepNow_();
+    sendNoCache(req, 200, "application/json", "{\"ok\":true}");
+  });
+
+  // POST /api/fonttest?on=&font=&dark=&size_idx= → runtime font-test (NOT saved)
+  server->on("/api/fonttest", HTTP_POST, [this](AsyncWebServerRequest* req) {
+    auto qp = [&](const char* k, int def) -> int {
+      return req->hasParam(k) ? req->getParam(k)->value().toInt() : def;
+    };
+    if (onFontTest_) onFontTest_(qp("on", 0), qp("font", -1), qp("dark", -1),
+                                 qp("all", -1), qp("crisp", -1), qp("size_idx", 0));
     sendNoCache(req, 200, "application/json", "{\"ok\":true}");
   });
 

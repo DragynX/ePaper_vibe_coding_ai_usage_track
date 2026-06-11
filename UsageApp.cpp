@@ -382,6 +382,8 @@ void UsageApp::begin() {
   ui_.setFont(cfgStore_.uiFont());
   ui_.setSmoothing(cfgStore_.uiAa());
   ui_.setSharpness(cfgStore_.uiSharp());
+  ui_.setTextWeight(cfgStore_.uiWeight());
+  ui_.setSmallTextCrisp(cfgStore_.uiSmallCrisp());
   // Cold boot: full splash. Wake: draw nothing — GRAY4 only refreshes cleanly
   // with a full update, so leave the persisted dashboard on screen during
   // WiFi+fetch and do one clean full refresh when the new data is ready.
@@ -421,6 +423,9 @@ void UsageApp::begin() {
                     if (!cfgStore_.deepSleepEnabled()) return -1;
                     const float d = battery_tracker_get_days_remaining(cfgStore_.refreshSec());
                     return d >= 0.0f ? (int)(d * 24.0f + 0.5f) : -1;
+                  },
+                  [this](int on, int font, int dark, int all, int crisp, int sz) {  // font-test
+                    onFontTest(on, font, dark, all, crisp, sz);
                   });
   server_.begin();
   sysLog("[settings] http://usagemonitor.local or http://%s",
@@ -444,7 +449,33 @@ void UsageApp::loop() {
   // A settings save requested a repaint (dark-mode toggle, new credentials,
   // etc.). Re-arm any stopped providers, apply the palette, and refetch now —
   // all on the main task (SPI / the e-paper are not safe from the async task).
-  if (redrawPending_) {
+  // Font Testing playground owns the screen while on; service its repaint first.
+  if (ftRedraw_) {
+    ftRedraw_ = false;
+    if (fontTestOn_) {
+      if (ftAllView_) {
+        ui_.drawAllFonts(kTestSizes[ftSizeIdx_], ftDark_, ftCrisp_);
+      } else {
+        ui_.drawFontTest(ftFont_, kTestSizes[ftSizeIdx_], ftDark_,
+                         WiFi.localIP().toString());
+      }
+    } else {
+      // Restore the normal renderer state + redraw the dashboard from the last snapshot.
+      ui_.setDarkMode(cfgStore_.darkMode());
+      ui_.setFont(cfgStore_.uiFont());
+      ui_.setSmoothing(cfgStore_.uiAa());
+      ui_.setSharpness(cfgStore_.uiSharp());
+      ui_.setTextWeight(cfgStore_.uiWeight());
+      ui_.setSmallTextCrisp(cfgStore_.uiSmallCrisp());
+      ui_.drawDashboard(snapshot_, currentStatus(), now());
+    }
+    lastRefreshMs_ = millis();   // don't immediately refetch on the next tick
+    extendAwake("font-test");
+  }
+
+  // A settings save requested a repaint (dark-mode toggle, new credentials,
+  // etc.). Suppressed while the playground owns the screen (re-applies on exit).
+  if (redrawPending_ && !fontTestOn_) {
     redrawPending_ = false;
     leftFailCount_ = rightFailCount_ = 0;
     leftDisabled_  = rightDisabled_  = false;
@@ -453,6 +484,8 @@ void UsageApp::loop() {
     ui_.setFont(cfgStore_.uiFont());
     ui_.setSmoothing(cfgStore_.uiAa());
     ui_.setSharpness(cfgStore_.uiSharp());
+    ui_.setTextWeight(cfgStore_.uiWeight());
+    ui_.setSmallTextCrisp(cfgStore_.uiSmallCrisp());
     sysLog("[ui] settings applied (dark=%d), breakers reset",
            cfgStore_.darkMode() ? 1 : 0);
     if (ensureWiFi(10000)) {
@@ -468,8 +501,8 @@ void UsageApp::loop() {
     extendAwake("save");        // a settings save keeps the device awake 2 min
   }
 
-  // Periodic refresh while awake.
-  if (ms - lastRefreshMs_ >= refreshMs) {
+  // Periodic refresh while awake (suppressed while the font-test playground is up).
+  if (!fontTestOn_ && ms - lastRefreshMs_ >= refreshMs) {
     lastRefreshMs_ = ms;
     if (ensureWiFi(10000)) refreshAll();
   }
@@ -500,6 +533,24 @@ void UsageApp::extendAwake(const char* reason) {
   if (awakeWindowMs_ < 120000UL) awakeWindowMs_ = 120000UL;
   sysLog("[sleep] window extended to %lus by %s (sleeps in %ds)",
          awakeWindowMs_ / 1000UL, reason ? reason : "?", sleepInSec());
+}
+
+// Font Testing playground size ladder (px). Index moves via Next/Previous Page.
+const int UsageApp::kTestSizes[11] = {6, 7, 8, 10, 12, 14, 16, 18, 24, 30, 34};
+
+// Web control (async task): store runtime state, flag a repaint for loop().
+// dark<0 / all<0 = "unchanged" so live size/font steps keep the saved dark + view.
+void UsageApp::onFontTest(int on, int font, int dark, int all, int crisp, int sizeIdx) {
+  fontTestOn_ = (on != 0);
+  if (font >= 0 && font < TextRenderer::fontCount()) ftFont_ = font;
+  if (dark  >= 0) ftDark_    = (dark != 0);
+  if (all   >= 0) ftAllView_ = (all != 0);
+  if (crisp >= 0) ftCrisp_   = (crisp != 0);
+  const int n = (int)(sizeof(kTestSizes) / sizeof(kTestSizes[0]));
+  ftSizeIdx_ = sizeIdx < 0 ? 0 : (sizeIdx >= n ? n - 1 : sizeIdx);
+  ftRedraw_ = true;
+  sysLog("[fonttest] on=%d font=%d size=%dpx dark=%d all=%d crisp=%d", (int)fontTestOn_,
+         ftFont_, kTestSizes[ftSizeIdx_], (int)ftDark_, (int)ftAllView_, (int)ftCrisp_);
 }
 
 // Seconds until deep sleep, or -1 when deep sleep is disabled.

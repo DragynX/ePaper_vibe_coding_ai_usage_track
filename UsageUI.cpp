@@ -2,6 +2,7 @@
 
 #include <string.h>
 #include <time.h>
+#include <esp_random.h>   // esp_random() for the playground divider picker
 
 #include "QuotaMath.h"
 #include "TimeFormat.h"
@@ -853,6 +854,144 @@ void UsageUI::drawDashboard(const UsageSnapshot& snap, const UiStatus& st, long 
 
   // GRAY4 only refreshes cleanly with a full update; partial/overlay refresh
   // corrupts the 4-bpp buffer, so always full-refresh.
+  display_.update();
+}
+
+// ---- Font Testing playground ----------------------------------------------
+
+void UsageUI::drawDivider(int y) {
+  // 10 ASCII art dividers; pick one at random, tile it to fill the screen width.
+  // Always DejaVu Sans 12px — caller loads font index 1 before this.
+  static const char* const kDiv[] = {
+    "------------=^..^=----------=^..^=------",
+    "-------><(((('>----------><(((('>-------",
+    "-------o(._.)o-----------o(._.)o--------",
+    "---------\\^_^/----\\^_^/----\\^_^/--------",
+    "--------[>__<]----[>__<]----[>__<]------",
+    "---------[>__<]~~~~~~[>__<]-------------",
+    "----------(^0^)~~~~~~(^0^)--------------",
+    "-------[===]([===])[===]([===])[===]----",
+    "-------<><><><><>(<><><>)<><><><><>-----",
+    "-_-_-_-_-_-_-o__o--o__o-_-_-_-_-_-_-_-_-",
+  };
+  const char* d = kDiv[esp_random() % 10];
+  const int oneW = renderer_.textWidthPx(d, 12, false);
+  String full = d;
+  if (oneW > 0) {
+    const int reps = display_.width() / oneW + 2;
+    for (int i = 1; i < reps; ++i) full += d;
+  }
+  renderer_.drawTextPx(full, 0, y, 12, TextAlign::TopLeft, kMuted, kBg, false);
+}
+
+void UsageUI::drawFontTest(int fontIdx, int px, bool dark, const String& ip) {
+  setDarkMode(dark);
+  const int W = display_.width();
+  const int H = display_.height();
+  const int margin = 12;
+  const int divStep = 16;       // DejaVu 12 + gap
+
+  // --- Pass A: header + 3 mode blocks in the TEST font; record divider rows ---
+  renderer_.setFontIndex(fontIdx);
+  display_.fillSprite(kBg);
+
+  int y = 6;
+  // Header: size (left) + selected font name (right), in Open Sans baked 13 so it
+  // stays legible regardless of the test font/size. (Baked draws are font-independent.)
+  char sz[16];
+  snprintf(sz, sizeof(sz), "%d px", px);
+  renderer_.drawTextPxBaked(sz, margin, y, 13, TextAlign::TopLeft, kText, kBg, true);
+  renderer_.drawTextPxBaked(TextRenderer::fontName(fontIdx), W - margin, y, 13,
+                            TextAlign::TopRight, kText, kBg, true);
+  y += 18;
+
+  int divY[8];
+  int nDiv = 0;
+  divY[nDiv++] = y;            // divider under the header
+  y += divStep;
+
+  // Text Block (line 2 bold). The IP fills the <device IP address> token in line 4.
+  const String pangram =
+    "Sphinx of black quartz, judge my foxy vow. THE QUICK BROWN FOX jumps over 13 lazy dogs.";
+  String lines[5];
+  lines[0] = pangram;
+  lines[1] = pangram;
+  lines[2] = "0123456789  00 11 22 55 88 99 Il1|  O0o  B8  S5  Z2  rn m  vv w  gq pbd";
+  lines[3] = ".,:;!?'\"`-_/\\ ()[]{}<>  @#%&*+=~^$€£ " + ip;
+  lines[4] = "12:34  3.14159  -42  +7  98.6%  v1.2.3 Wi-Fi / e-paper / 128x64 / A-Z / a-z";
+  const bool boldLine[5] = {false, true, false, false, false};
+
+  const int lineH = px * 5 / 4 + 2;
+  const char* labels[3] = {"Smooth Text", "Crisp small text", "Smooth & Crisp"};
+  const bool isOpenSans = (fontIdx == 9);
+
+  for (int m = 0; m < 3 && y < H - 14; ++m) {
+    // Mode label (Open Sans baked 13). Non-Open-Sans crisp modes can't bake -> note.
+    String lbl = labels[m];
+    if (m > 0 && !isOpenSans) lbl += "  (vector — no baked)";
+    renderer_.drawTextPxBaked(lbl, margin, y, 13, TextAlign::TopLeft, kMuted, kBg, true);
+    y += 16;
+
+    for (int i = 0; i < 5 && y < H - px; ++i) {
+      const bool b = boldLine[i];
+      if (m == 0) {                       // Smooth: OFR grayscale AA
+        renderer_.setSmoothing(true);
+        renderer_.drawTextPx(lines[i], margin, y, px, TextAlign::TopLeft, kText, kBg, b);
+      } else if (m == 1) {                // Crisp: baked bitmap, else vector 1-bit
+        if (!renderer_.drawTextPxBaked(lines[i], margin, y, px, TextAlign::TopLeft, kText, kBg, b)) {
+          renderer_.setSmoothing(false);
+          renderer_.drawTextPx(lines[i], margin, y, px, TextAlign::TopLeft, kText, kBg, b);
+        }
+      } else {                            // Both: baked bitmap, else OFR AA
+        if (!renderer_.drawTextPxBaked(lines[i], margin, y, px, TextAlign::TopLeft, kText, kBg, b)) {
+          renderer_.setSmoothing(true);
+          renderer_.drawTextPx(lines[i], margin, y, px, TextAlign::TopLeft, kText, kBg, b);
+        }
+      }
+      y += lineH;
+    }
+    y += 4;
+    if (m < 2 && y < H - 14 && nDiv < 8) { divY[nDiv++] = y; y += divStep; }
+  }
+
+  // --- Pass B: dividers in DejaVu Sans 12px (full width) at recorded rows ---
+  renderer_.setFontIndex(1);   // DejaVu Sans
+  renderer_.setSmoothing(true);
+  for (int i = 0; i < nDiv; ++i) drawDivider(divY[i]);
+
+  display_.update();
+}
+
+void UsageUI::drawAllFonts(int px, bool dark, bool crisp) {
+  setDarkMode(dark);
+  const int W = display_.width();
+  const int H = display_.height();
+  const int margin = 12;
+  display_.fillSprite(kBg);
+
+  // Header (Open Sans baked 13 — font-independent, always legible).
+  char hdr[24];
+  snprintf(hdr, sizeof(hdr), "All Fonts  %d px", px);
+  renderer_.drawTextPxBaked(hdr, margin, 4, 13, TextAlign::TopLeft, kText, kBg, true);
+
+  // One line per font: the phrase (regular + bold) in that font, then its name.
+  static const char* const kReg  = "Dragynx are fozy!@#123<>*& || ";
+  static const char* const kBold = "Dragynx are fozy!@#123<>*&";
+  const int lineH = (px > 13 ? px : 13) * 5 / 4 + 4;
+  renderer_.setSmoothing(!crisp);   // crisp = solid GRAY_0 (hard black); smooth = AA grey edges
+  int y = 4 + lineH;
+  const int n = TextRenderer::fontCount();
+  for (int i = 0; i < n && y < H - lineH; ++i) {
+    renderer_.setFontIndex(i);   // each render reloads 14 fonts (~slow, save-triggered)
+    renderer_.drawTextPx(kReg, margin, y, px, TextAlign::TopLeft, kText, kBg, false);
+    const int rw = renderer_.textWidthPx(kReg, px, false);
+    renderer_.drawTextPx(kBold, margin + rw, y, px, TextAlign::TopLeft, kText, kBg, true);
+    // Font name in fixed Open Sans baked 13, right column.
+    const int ny = y + (px > 13 ? (px - 13) / 2 : 0);
+    renderer_.drawTextPxBaked(TextRenderer::fontName(i), W - margin, ny, 13,
+                              TextAlign::TopRight, kText, kBg, true);
+    y += lineH;
+  }
   display_.update();
 }
 

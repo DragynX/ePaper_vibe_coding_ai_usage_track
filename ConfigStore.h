@@ -19,6 +19,8 @@ class ConfigStore {
   int  uiFont() const           { return ui_font_; }
   bool uiAa() const             { return ui_aa_; }
   int  uiSharp() const          { return ui_sharp_; }
+  int  uiWeight() const         { return ui_weight_; }
+  bool uiSmallCrisp() const     { return ui_small_crisp_; }
   uint16_t battFullMv() const   { return battFull_; }
 
   // Bitmask of providers whose secret changed in the last fromJson() (bit n =
@@ -58,6 +60,8 @@ class ConfigStore {
   void setUiFont(int v)                  { ui_font_ = v; }
   void setUiAa(bool v)                   { ui_aa_ = v; }
   void setUiSharp(int v)                 { ui_sharp_ = v; }
+  void setUiWeight(int v)                { ui_weight_ = v; }
+  void setUiSmallCrisp(bool v)           { ui_small_crisp_ = v; }
   void setBattFullMv(uint16_t v)         { battFull_ = v; }
   void setClaudeAt(const String& v)      { cl_at_ = v; }
   void setClaudeRt(const String& v)      { cl_rt_ = v; }
@@ -94,9 +98,11 @@ class ConfigStore {
   uint32_t refreshSec_ = 300;
   bool    deepSleep_   = false;
   bool    dark_        = false;
-  int     ui_font_     = 0;       // selected device typeface index (0..N-1)
-  bool    ui_aa_       = true;    // grayscale anti-aliasing (smooth) vs crisp 1-bit
+  int     ui_font_     = 4;       // selected device typeface index (0..N-1); 4 = Lexend
+  bool    ui_aa_       = false;   // grayscale AA (smooth) vs crisp 1-bit; default crisp (Hard Black on)
   int     ui_sharp_    = 50;      // AA edge contrast 0..100 (higher = sharper)
+  int     ui_weight_   = 45;      // AA text weight 0..100 (higher = darker thin strokes)
+  bool    ui_small_crisp_ = true; // small text: true = baked bitmap (crisp), false = vector
   bool    secure_      = false;
   uint16_t battFull_   = 4200;
   uint8_t pendingTestMask_ = 0;

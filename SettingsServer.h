@@ -20,7 +20,8 @@ class SettingsServer {
              std::function<int()> sleepInSec = nullptr,
              std::function<int()> bootId = nullptr,
              int (*battMv)() = nullptr,
-             std::function<int()> battDays = nullptr);
+             std::function<int()> battDays = nullptr,
+             std::function<void(int,int,int,int,int,int)> onFontTest = nullptr);
 
  private:
   ConfigStore* cfg_ = nullptr;
@@ -33,6 +34,7 @@ class SettingsServer {
   std::function<void()> onSleepNow_;
   std::function<int()> sleepInSec_;
   std::function<int()> bootId_;
+  std::function<void(int,int,int,int,int,int)> onFontTest_;  // (on,font,dark,all,crisp,sizeIdx); <0 = unchanged
 };
 
 }  // namespace usage_monitor
