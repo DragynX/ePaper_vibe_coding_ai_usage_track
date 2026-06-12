@@ -91,7 +91,26 @@ class ConfigStore {
   // Erase all credential fields for one provider (id 1..7). Caller saves.
   void clearProvider(uint8_t prov);
 
+  // Learned battery runtime estimates (days remaining) keyed by SOC bucket, kept
+  // separately for deep-sleep and awake modes. Used as italic placeholders while
+  // the live estimate is still calibrating. Persisted in NVS (survives power loss).
+  static constexpr int kBattBuckets = 11;
+  float battEstLookup(bool deep, int soc) const;       // nearest learned est, or -1
+  void  battEstRecord(bool deep, int soc, float days); // learn + persist (wear-guarded)
+
  private:
+  struct BattEst {
+    uint8_t version;
+    float deep[kBattBuckets];
+    float awake[kBattBuckets];
+    float lastDeep;
+    float lastAwake;
+  };
+  BattEst battEst_;
+  void initBattEst();                  // fill empties (-1) when unset/invalid
+  void saveBattEst();                  // putBytes the blob to NVS (single key)
+  static int battBucketIndex(int soc); // nearest bucket index for a SOC%
+
   uint8_t leftProv_    = 0;
   uint8_t rightProv_   = 0;
   String  tz_          = "UTC0";

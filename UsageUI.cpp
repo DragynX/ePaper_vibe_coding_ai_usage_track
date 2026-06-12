@@ -313,9 +313,11 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     const int pillX = margin - padX, pillY = topY - padY;
     const int pillW = nameW + 2 * padX, pillH = nameH + 2 * padY;
     display_.drawRoundRect(pillX, pillY, pillW, pillH, pillH / 2, kText);
+    display_.drawRoundRect(pillX + 1, pillY + 1, pillW - 2, pillH - 2,
+                           (pillH - 2) / 2, kText);   // 2px stroke
     renderer_.drawTextFace(appName, margin, topY,
                            TextFace::SansBold9, TextAlign::TopLeft, kText, kBg);
-    renderer_.drawTextFace(UM_VERSION, pillX + pillW + 8, topY + nameH,
+    renderer_.drawTextFace(String("v") + UM_VERSION, pillX + pillW + 8, topY + nameH,
                            TextFace::Sans7, TextAlign::BottomLeft, kText, kBg);
   }
 
@@ -346,13 +348,15 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
     const int w3 = renderer_.measureTextFace(s3, small);
     const int w4 = renderer_.measureTextFace(s4, big);
     const int gap = 12;   // breathing room before "Next->" so the times don't touch
-    int sx = w / 2 - (w0 + w1 + w2 + w3 + w4 + gap) / 2;
+    const int fgap = 4;   // extra space after "Fetch:" so it isn't glued to Last->
+    int sx = w / 2 - (w0 + fgap + w1 + w2 + w3 + w4 + gap) / 2;
     const int by = topY + 15;   // common bottom baseline; +2 for the taller glyphs
-    renderer_.drawTextFace(s0, sx, by, big,   TextAlign::BottomLeft, kText, kBg); sx += w0;
-    renderer_.drawTextFace(s1, sx, by, small, TextAlign::BottomLeft, kText, kBg); sx += w1;
-    renderer_.drawTextFace(s2, sx, by, big,   TextAlign::BottomLeft, kText, kBg); sx += w2 + gap;
-    renderer_.drawTextFace(s3, sx, by, small, TextAlign::BottomLeft, kText, kBg); sx += w3;
-    renderer_.drawTextFace(s4, sx, by, big,   TextAlign::BottomLeft, kText, kBg);
+    const int sby = by - 4;     // raise the small Last->/Next-> labels onto the line
+    renderer_.drawTextFace(s0, sx, by,  big,   TextAlign::BottomLeft, kText, kBg); sx += w0 + fgap;
+    renderer_.drawTextFace(s1, sx, sby, small, TextAlign::BottomLeft, kText, kBg); sx += w1;
+    renderer_.drawTextFace(s2, sx, by,  big,   TextAlign::BottomLeft, kText, kBg); sx += w2 + gap;
+    renderer_.drawTextFace(s3, sx, sby, small, TextAlign::BottomLeft, kText, kBg); sx += w3;
+    renderer_.drawTextFace(s4, sx, by,  big,   TextAlign::BottomLeft, kText, kBg);
   }
 
   // Right: refresh note + WiFi/battery icons.
@@ -408,17 +412,20 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
         battNote = "Calibrating...";
       }
       if (battNote) {
-        // Flush to the battery icon's right edge.
+        // Flush to the battery icon's right edge. Learned placeholders are italic.
+        if (st.batteryEstPlaceholder) renderer_.setItalic(true);
         renderer_.drawTextFace(battNote, battX + battW, battY + battH + 3,
                                TextFace::Sans9, TextAlign::TopRight, kMuted, kBg);
+        if (st.batteryEstPlaceholder) renderer_.setItalic(false);
       }
       leftEdge = battX - 3;   // 3px nub drawn past battW
     }
     if (st.ipAddress.length() > 0 && st.ipAddress != "0.0.0.0") {
       const int ipX = leftEdge - 4;
-      const int ipY = topY + (wifiH - 7) / 2 + 6;   // 2px higher than before
+      const int ipY = topY + (wifiH - 7) / 2 + 6 - 2;   // one size up, moved up 2px
       // kText => black in light mode, white in dark mode (was muted gray).
-      renderer_.drawText(st.ipAddress, ipX, ipY, 1, TextAlign::TopRight, kText, kBg);
+      renderer_.drawTextFace(st.ipAddress, ipX, ipY, TextFace::Sans9,
+                             TextAlign::TopRight, kText, kBg);
     }
   }
 }
@@ -463,8 +470,8 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
   char remBuf[24];
   snprintf(remBuf, sizeof(remBuf), "%s %d%%", uiStr(UiStringId::kRemaining),
            static_cast<int>(win.remainingPercent() + 0.5));
-  const int bottomRowY = y + h - pad - (kIsLarge ? 12 : 14);
-  renderer_.drawTextFace(remBuf, x + pad, bottomRowY, TextFace::Sans9,
+  const int bottomRowY = y + h - pad - (kIsLarge ? 12 : 17);
+  renderer_.drawTextFace(remBuf, x + pad, bottomRowY, TextFace::SansBold12,
                          TextAlign::TopLeft, kText, kCard);
 
   if (win.resetEpoch > 0 && nowEpoch > 0) {
@@ -472,7 +479,7 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
     umFormatCountdown(win.resetEpoch - nowEpoch, cd, sizeof(cd));
     char resetBuf[32];
     snprintf(resetBuf, sizeof(resetBuf), "%s %s", uiStr(UiStringId::kResets), cd);
-    renderer_.drawTextFace(resetBuf, x + w - pad, bottomRowY, TextFace::SansBold9,
+    renderer_.drawTextFace(resetBuf, x + w - pad, bottomRowY, TextFace::SansBold12,
                            TextAlign::TopRight, kText, kCard);
   }
 }
@@ -549,14 +556,14 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
                      snprintf(lblbuf, sizeof(lblbuf), "%d-day cost", win); label = lblbuf; }
     else           { snprintf(buf, sizeof(buf), "$--"); dim = true; }
   }
-  renderer_.drawTextFace(buf, x, cy, TextFace::SansBold24, TextAlign::TopLeft,
+  renderer_.drawTextFace(buf, x, cy, TextFace::SansBold36, TextAlign::TopLeft,
                          dim ? kMuted : kText, kBg);
   if (label) {
-    const int numW = renderer_.measureTextFace(buf, TextFace::SansBold24);
-    renderer_.drawTextFace(label, x + numW + 10, cy + 24, TextFace::Sans9,
-                           TextAlign::BottomLeft, kMuted, kBg);
+    const int numW = renderer_.measureTextFace(buf, TextFace::SansBold36);
+    renderer_.drawTextFace(label, x + numW + 10, cy + 50, TextFace::SansBold12,
+                           TextAlign::BottomLeft, kMuted, kBg);   // just above the line
   }
-  cy += 36;
+  cy += 52;
   display_.fillRect(x, cy, w, 1, kLine);
   cy += 12;
   // Prepaid amount sits under the separator, above the models.
@@ -580,7 +587,7 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
     const ProviderQuota::PlatModel& m = p.platModels[i];
     const char* nm = m.name;
     if (strncmp(nm, "claude-", 7) == 0) nm += 7;   // shorten for width
-    renderer_.drawTextFace(nm, x, cy, TextFace::Sans9, TextAlign::TopLeft, kText, kBg);
+    renderer_.drawTextFace(nm, x, cy, TextFace::SansBold12, TextAlign::TopLeft, kText, kBg);
     const int barX = x + labelW;
     const int barW = w - labelW - valW;
     const int barH = 12;
@@ -592,13 +599,13 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
     }
     char vbuf[16];
     snprintf(vbuf, sizeof(vbuf), "$%.2f", m.cents / 100.0);
-    renderer_.drawTextFace(vbuf, x + w, cy, TextFace::SansBold9,
+    renderer_.drawTextFace(vbuf, x + w, cy, TextFace::SansBold12,
                            TextAlign::TopRight, kText, kBg);
     cy += rowH;
   }
   if (p.platCount == 0 && p.ok) {
     snprintf(buf, sizeof(buf), "No usage in last %d days", win);
-    renderer_.drawTextFace(buf, x, cy, TextFace::Sans9, TextAlign::TopLeft, kMuted, kBg);
+    renderer_.drawTextFace(buf, x, cy, TextFace::SansBold12, TextAlign::TopLeft, kMuted, kBg);
     cy += rowH;
   }
 
@@ -610,8 +617,8 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
   else if (tk >= 1e3) snprintf(tkBuf, sizeof(tkBuf), "%.1fK", tk / 1e3);
   else snprintf(tkBuf, sizeof(tkBuf), "%.0f", tk);
   snprintf(buf, sizeof(buf), "%d day token usage: %s", win, tkBuf);
-  renderer_.drawTextFace(buf, x, cy, TextFace::Sans9, TextAlign::TopLeft, kText, kBg);
-  cy += 18;
+  renderer_.drawTextFace(buf, x, cy, TextFace::SansBold12, TextAlign::TopLeft, kText, kBg);
+  cy += 20;
 
   // Extra cost reports (placeholders this pass — real fetches to follow).
   static const char* const kReports[4] = {
@@ -621,9 +628,9 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
     "Claude Code analytics: n/a",
   };
   for (int i = 0; i < 4 && cy + 14 <= y + h; ++i) {
-    renderer_.drawTextFace(kReports[i], x, cy, TextFace::Sans9,
+    renderer_.drawTextFace(kReports[i], x, cy, TextFace::SansBold12,
                            TextAlign::TopLeft, kMuted, kBg);
-    cy += 16;
+    cy += 18;
   }
 }
 

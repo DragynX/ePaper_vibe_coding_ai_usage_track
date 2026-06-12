@@ -21,7 +21,8 @@ class SettingsServer {
              std::function<int()> bootId = nullptr,
              int (*battMv)() = nullptr,
              std::function<int()> battDays = nullptr,
-             std::function<void(int,int,int,int,int,int)> onFontTest = nullptr);
+             std::function<void(int,int,int,int,int,int)> onFontTest = nullptr,
+             std::function<long()> uptime = nullptr);
 
  private:
   ConfigStore* cfg_ = nullptr;
@@ -34,6 +35,7 @@ class SettingsServer {
   std::function<void()> onSleepNow_;
   std::function<int()> sleepInSec_;
   std::function<int()> bootId_;
+  std::function<long()> uptime_;    // seconds since cold boot (spans deep-sleep wakes)
   std::function<void(int,int,int,int,int,int)> onFontTest_;  // (on,font,dark,all,crisp,sizeIdx); <0 = unchanged
 };
 

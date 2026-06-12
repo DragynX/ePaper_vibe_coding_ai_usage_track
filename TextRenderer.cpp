@@ -105,6 +105,8 @@ int      g_sharp = 50;          // 0..100 AA contrast: 0 = soft/linear, 100 = ne
 int      g_weight = 45;         // 0..100 text weight: bias coverage toward ink so thin
                                 // small-text strokes render dark (0 = off). Smooth mode only.
 bool     g_smallCrisp = true;   // small text: true = crisp baked bitmap, false = vector (OFR/AA)
+bool     g_italic     = false;  // faux-italic: shear glyph pixels (forces the OFR path)
+int      g_italicBaseY = 0;     // baseline y the italic shear pivots around (set per draw)
 
 // Selectable typefaces (order MUST match the ui_font <select> in SettingsServer).
 struct UmFont { const char* name;
@@ -143,6 +145,8 @@ static inline uint8_t ofrLum(uint16_t c) { return (c >> 5) & 0x3F; }
 // One covered pixel: crisp = ink-or-skip; smooth = gray ramp index bg..ink.
 static inline void ofrPaint(int32_t px, int32_t py, uint16_t c) {
   if (!g_disp) return;
+  // Faux-italic: shear rows toward the right as they rise above the baseline.
+  if (g_italic) px += (int32_t)((g_italicBaseY - py) * 0.21f);   // ~12 deg
   const int lum = ofrLum(c);          // 0..63 coverage
   if (g_aa) {
     // Text weight: bias coverage toward full ink so thin small-text strokes
@@ -259,6 +263,7 @@ void ofrDraw(OpenFontRender& ofr, const String& text, int x, int y, int px,
   const int h = px;
   int ox = x, oy = y;
   anchorTopLeft(align, ox, oy, w, h);
+  g_italicBaseY = oy + h;              // bottom of the box; italic shear pivots here
   FT_BBox bbox;
   FT_Error error;
   // Pass white fg / black bg so the hook's color arg = coverage; the hook
@@ -387,6 +392,14 @@ void TextRenderer::setWeight(int v) {
 void TextRenderer::setSmallCrisp(bool on) {
 #if !UM_LANG_ZH && UM_USE_OFR
   g_smallCrisp = on;
+#else
+  (void)on;
+#endif
+}
+
+void TextRenderer::setItalic(bool on) {
+#if !UM_LANG_ZH && UM_USE_OFR
+  g_italic = on;
 #else
   (void)on;
 #endif
@@ -548,7 +561,8 @@ void TextRenderer::drawTextFace(const String& text, int x, int y, TextFace face,
 #if UM_USE_OFR
   if (fontReady_) {
     // Small faces -> crisp baked bitmap (when enabled); large faces stay vector.
-    const GFXfont* gf = g_smallCrisp ? faceGfx(face) : nullptr;
+    // Italic forces the vector path so the shear in ofrPaint can apply.
+    const GFXfont* gf = (g_smallCrisp && !g_italic) ? faceGfx(face) : nullptr;
     if (gf) drawGfx(gf, text, x, y, align, color, bg);
     else    ofrDraw(faceOfr(face), text, x, y, facePx(face), align, color, bg);
     return;

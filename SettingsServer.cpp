@@ -222,10 +222,6 @@ R"rawhtml(
   </label>
   <p class="note adv-only" style="margin-top:4px">Higher = sharper/heavier edges, lower = softer. Text weight darkens thin small text (0 = off). Font / smoothing / sharpness / weight changes repaint on Save (no reboot).</p>
   <label class="chkrow" style="margin-top:10px">
-    <input type="checkbox" id="secure">
-    <span>Secure Tokens (hide saved tokens; reveal only what you type this session)</span>
-  </label>
-  <label class="chkrow" style="margin-top:10px">
     <input type="checkbox" id="deep_sleep">
     <span>Enable Deep Sleep between fetches</span>
   </label>
@@ -398,7 +394,6 @@ function populate(c){
   const usc=document.getElementById('ui_smcrisp');if(usc)usc.checked=(c.ui_smcrisp!==false);
   const us=document.getElementById('ui_sharp');if(us){us.value=String(c.ui_sharp??50);document.getElementById('sharp_lbl').textContent=us.value;}
   const uw=document.getElementById('ui_weight');if(uw){uw.value=String(c.ui_weight??45);document.getElementById('weight_lbl').textContent=uw.value;}
-  const se=document.getElementById('secure');if(se)se.checked=!!c.secure;
   const lp=document.getElementById('left_prov');if(lp)lp.value=String(c.left_prov??0);
   const rp=document.getElementById('right_prov');if(rp)rp.value=String(c.right_prov??0);
   const cpm=String(c.cp_mode??'prepaid')==='spend'?'spend':'prepaid';
@@ -425,7 +420,6 @@ function collect(){
   d.ui_smcrisp=document.getElementById('ui_smcrisp').checked;
   d.ui_sharp=parseInt(document.getElementById('ui_sharp').value);
   d.ui_weight=parseInt(document.getElementById('ui_weight').value);
-  d.secure=document.getElementById('secure').checked;
   d.left_prov=parseInt(document.getElementById('left_prov').value);
   d.right_prov=parseInt(document.getElementById('right_prov').value);
   d.batt_full=parseInt(document.getElementById('batt_full')?.value||'4200');
@@ -492,7 +486,8 @@ async function loadSt(){
   try{
     const d=await fetch('/api/status').then(r=>r.json());
     const up=d.uptime_sec|0;
-    const h=Math.floor(up/3600),m=Math.floor((up%3600)/60),s=up%60;
+    const dd=Math.floor(up/86400),h=Math.floor((up%86400)/3600),m=Math.floor((up%3600)/60),s=up%60;
+    const upStr=(dd>0?dd+'d ':'')+h+'h '+m+'m '+s+'s';
     const str=(r)=>(r==null||r===0)?'?':(r>=-60?'High':(r>=-72?'Med':'Low'));
     let battStr='?';
     if(d.batt!=null&&d.batt>=0){
@@ -503,12 +498,16 @@ async function loadSt(){
         battStr+=' | Charging';
       else if(d.batt_days==-2)
         battStr+=' | Calibrating...';
+      else if(d.batt_days<=-10){
+        var ph=-d.batt_days-10;   // learned placeholder -> italic
+        battStr+=' | <i>Est. '+Math.floor(ph/24)+' days '+(ph%24)+' hours on battery</i>';
+      }
     }
     const rows=[
       ['IP Address',d.ip??'?'],
       ['WiFi',(d.ssid??'?')+' | '+str(d.rssi)],
       ['Battery',battStr],
-      ['Uptime',h+'h '+m+'m '+s+'s'],
+      ['Uptime',upStr],
       ['LEFT',PNAMES[d.left_prov??0]??'?'],
       ['RIGHT',PNAMES[d.right_prov??0]??'?'],
     ];
@@ -632,6 +631,11 @@ async function pollSleep(){
 (function(){try{var a=localStorage.getItem('um_adv')==='1';var c=document.getElementById('adv');if(c)c.checked=a;document.body.classList.toggle('adv',a);}catch(e){}})();
 setInterval(pollSleep,5000);pollSleep();
 </script>
+<div style="margin-top:18px;padding-top:10px;border-top:1px solid #ccc;text-align:center;font-size:12px;color:#888">
+  Initial main branch by <a href="https://github.com/limengdu" target="_blank" rel="noopener">limengdu</a>
+  (<a href="https://github.com/limengdu/ePaper_vibe_coding_ai_usage_track" target="_blank" rel="noopener">ePaper_vibe_coding_ai_usage_track</a>).
+  Special thanks to <a href="https://github.com/tddworks/ClaudeBar" target="_blank" rel="noopener">ClaudeBar</a>.
+</div>
 </body>
 </html>
 )rawhtml";
@@ -676,8 +680,10 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
                            std::function<int()> bootId,
                            int (*battMv)(),
                            std::function<int()> battDays,
-                           std::function<void(int,int,int,int,int,int)> onFontTest) {
+                           std::function<void(int,int,int,int,int,int)> onFontTest,
+                           std::function<long()> uptime) {
   cfg_ = cfg;
+  uptime_ = uptime;
   battPct_ = battPct;
   battMv_ = battMv;
   battDays_ = battDays;
@@ -788,7 +794,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
   server->on("/api/status", HTTP_GET, [this](AsyncWebServerRequest* req) {
     String ip   = jsonEscape(WiFi.localIP().toString());
     String ssid = jsonEscape(WiFi.SSID());
-    unsigned long up = millis() / 1000UL;
+    long up = uptime_ ? uptime_() : (long)(millis() / 1000UL);   // since cold boot
     const int batt = battPct_ ? battPct_() : -1;       // reads ADC, also sets mV
     const int battMv = battMv_ ? battMv_() : -1;
     const int sleepIn = sleepInSec_ ? sleepInSec_() : -1;  // passive: does NOT extend

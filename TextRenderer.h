@@ -55,6 +55,9 @@ class TextRenderer {
   void setWeight(int v);
   // Small text: true = crisp baked bitmap (Open Sans), false = vector (OFR/AA).
   void setSmallCrisp(bool on);
+  // Faux-italic: shear subsequent text (forces the vector path so the shear shows).
+  // Call setItalic(true) around a draw, then setItalic(false) to restore.
+  void setItalic(bool on);
 
   bool fontReady() const { return fontReady_; }
 

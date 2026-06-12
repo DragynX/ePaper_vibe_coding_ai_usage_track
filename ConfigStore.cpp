@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <Preferences.h>
+#include <math.h>
 
 #include "AppLog.h"
 #include "ProviderSelect.h"
@@ -49,6 +50,10 @@ void ConfigStore::load() {
   cp_mode_     = p.getString("cp_mode", "prepaid");
   cp_spendwin_ = p.getString("cp_spendwin", "30");
   ls_url_ = p.getString("ls_url", "");
+  if (p.getBytes("batt_est", &battEst_, sizeof(battEst_)) != sizeof(battEst_)
+      || battEst_.version != 1) {
+    initBattEst();
+  }
   p.end();
   sysLog("[cfg] loaded left=%d right=%d ref=%us", (int)leftProv_, (int)rightProv_, (unsigned)refreshSec_);
 }
@@ -94,6 +99,56 @@ void ConfigStore::save() {
   sysLog("[cfg] saved");
 }
 
+// --- Learned battery runtime estimates ------------------------------------
+static const uint8_t kBattSoc[ConfigStore::kBattBuckets] =
+    {99, 95, 90, 80, 70, 60, 50, 40, 30, 20, 10};
+
+void ConfigStore::initBattEst() {
+  battEst_.version = 1;
+  for (int i = 0; i < kBattBuckets; ++i) {
+    battEst_.deep[i]  = -1.0f;
+    battEst_.awake[i] = -1.0f;
+  }
+  battEst_.lastDeep = battEst_.lastAwake = -1.0f;
+}
+
+int ConfigStore::battBucketIndex(int soc) {
+  int best = 0, bestd = 1000;
+  for (int i = 0; i < kBattBuckets; ++i) {
+    const int d = abs((int)kBattSoc[i] - soc);
+    if (d < bestd) { bestd = d; best = i; }
+  }
+  return best;
+}
+
+float ConfigStore::battEstLookup(bool deep, int soc) const {
+  const float* tbl = deep ? battEst_.deep : battEst_.awake;
+  const int idx = battBucketIndex(soc);
+  for (int r = 0; r < kBattBuckets; ++r) {        // search outward from the bucket
+    if (idx - r >= 0 && tbl[idx - r] >= 0.0f) return tbl[idx - r];
+    if (idx + r < kBattBuckets && tbl[idx + r] >= 0.0f) return tbl[idx + r];
+  }
+  return deep ? battEst_.lastDeep : battEst_.lastAwake;   // carry last, or -1
+}
+
+void ConfigStore::battEstRecord(bool deep, int soc, float days) {
+  if (days < 0.0f) return;
+  float* tbl  = deep ? battEst_.deep : battEst_.awake;
+  float& last = deep ? battEst_.lastDeep : battEst_.lastAwake;
+  float& slot = tbl[battBucketIndex(soc)];
+  bool changed = false;
+  if (slot < 0.0f || fabsf(slot - days) >= 0.2f) { slot = days; changed = true; }
+  if (last < 0.0f || fabsf(last - days) >= 0.2f) { last = days; changed = true; }
+  if (changed) saveBattEst();                     // wear guard: only on real change
+}
+
+void ConfigStore::saveBattEst() {
+  Preferences p;
+  if (!p.begin(kNs, false)) return;
+  p.putBytes("batt_est", &battEst_, sizeof(battEst_));
+  p.end();
+}
+
 String ConfigStore::toJson() const {
   JsonDocument doc;
   doc["left_prov"]  = leftProv_;
@@ -109,11 +164,10 @@ String ConfigStore::toJson() const {
   doc["ui_weight"]  = ui_weight_;
   doc["ui_smcrisp"] = ui_small_crisp_;
   doc["batt_full"]  = battFull_;
-  // Secret fields: when Secure Tokens is ON they are NOT echoed (only a
-  // <key>_set flag) so they never cross the LAN; when OFF the real value is
-  // returned so the box can reveal it on click. _set flags are always emitted.
+  // Secret fields are NEVER echoed back — a saved key is shown blank with a
+  // "saved" placeholder (the <key>_set flag drives it). They never cross the LAN.
   auto secret = [&](const char* key, const String& v) {
-    doc[key] = secure_ ? String("") : v;
+    doc[key] = String("");
     doc[String(key) + "_set"] = v.length() > 0;
   };
   secret("cl_at", cl_at_);

@@ -37,7 +37,7 @@ class UsageApp {
   bool ensureWiFi(uint32_t timeoutMs);
   void syncTime();
   long now();
-  void refreshAll();
+  void refreshAll(bool forceDraw = false);
   void printSnapshot();
   UiStatus currentStatus();
   void setProviderNames();
@@ -75,6 +75,7 @@ class UsageApp {
   void extendAwake(const char* reason);   // a user web action -> keep awake 2 min
   int  sleepInSec();           // seconds until deep sleep, or -1 if disabled
   uint32_t bootId();           // RTC wake counter; changes every wake (session token)
+  long uptimeSec();            // seconds since cold boot; spans deep-sleep wakes
   volatile bool redrawPending_     = false;  // set by settings save, handled in loop()
 
   // Font Testing playground — runtime only, never persisted (off after reboot).

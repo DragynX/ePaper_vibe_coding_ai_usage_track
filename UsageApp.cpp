@@ -32,6 +32,19 @@ static const unsigned long kAwakeSampleMs = 60000UL;  // awake battery sample ca
 
 // Survives deep sleep; diagnostics only.
 RTC_DATA_ATTR static uint32_t g_wakeCount = 0;
+// Wall-clock epoch of the last cold (power-on) boot. RTC-backed so uptime spans
+// deep-sleep wakes; 0 until anchored (set once time is valid after a cold boot).
+RTC_DATA_ATTR static long g_coldBootEpoch = 0;
+
+// Anti-flicker: fingerprint of what the dashboard last painted + when. A wake
+// whose data fingerprint matches skips the repaint entirely — the panel keeps
+// its image for free, and the GRAY4 full-refresh flash sequence never runs.
+// RTC-backed: survives deep sleep, zeroes on power loss (0 = invalid -> draw).
+RTC_DATA_ATTR static uint32_t g_lastDrawHash  = 0;
+RTC_DATA_ATTR static long     g_lastDrawEpoch = 0;
+// Repaint at least this often so the (excluded) fetch times / reset countdowns
+// on screen never go more than an hour stale.
+static const long kMaxNoRepaintSec = 3600;
 
 // Mirror log output to both USB CDC (Serial, visible on the COM port) and the
 // external UART (Serial1, pins 43/44). EspAppLog accepts one Stream*.
@@ -362,6 +375,7 @@ void UsageApp::begin() {
   const bool firstBoot = (cause != ESP_SLEEP_WAKEUP_TIMER &&
                           cause != ESP_SLEEP_WAKEUP_EXT1);
   awakeWindowMs_ = firstBoot ? 5UL * 60UL * 1000UL : 30UL * 1000UL;
+  if (firstBoot) g_coldBootEpoch = 0;   // re-anchor uptime on a real cold boot
   ++g_wakeCount;
   sysLog("[boot] wake cause=%d firstBoot=%d count=%u window=%lums",
          (int)cause, firstBoot ? 1 : 0, (unsigned)g_wakeCount, awakeWindowMs_);
@@ -420,22 +434,29 @@ void UsageApp::begin() {
                   [this]() { return sleepInSec(); },         // seconds until sleep
                   [this]() { return (int)bootId(); },        // session token (wake count)
                   &readBatteryMv,                            // actual battery mV
-                  [this]() -> int {       // est hours on batt; -2 = calibrating, -3 = charging
-                    const float d = cfgStore_.deepSleepEnabled()
+                  [this]() -> int {  // hours: >=0 live, -2 calib, -3 charging, <=-10 placeholder
+                    const bool deep = cfgStore_.deepSleepEnabled();
+                    const float d = deep
                         ? battery_tracker_get_days_remaining(cfgStore_.refreshSec())
                         : battery_tracker_get_days_remaining_awake();
                     if (d >= 0.0f) return (int)(d * 24.0f + 0.5f);
-                    return battery_is_charging() ? -3 : -2;
+                    if (battery_is_charging()) return -3;
+                    const int soc = readBatteryPercent();
+                    const float ph = (soc >= 0) ? cfgStore_.battEstLookup(deep, soc) : -1.0f;
+                    if (ph >= 0.0f) return -((int)(ph * 24.0f + 0.5f) + 10);  // learned placeholder
+                    return -2;
                   },
                   [this](int on, int font, int dark, int all, int crisp, int sz) {  // font-test
                     onFontTest(on, font, dark, all, crisp, sz);
-                  });
+                  },
+                  [this]() -> long { return uptimeSec(); });   // uptime since cold boot
   server_.begin();
   sysLog("[settings] http://usagemonitor.local or http://%s",
          WiFi.localIP().toString().c_str());
 
   syncTime();   // non-blocking: starts background SNTP, no splash screen
-  if (firstBoot) ui_.drawBoot(uiStr(UiStringId::kBootFetch), currentStatus(), now());
+  // No second "Fetching…" splash: the dashboard lands seconds after the WiFi
+  // splash, and each splash costs a full GRAY4 flash sequence.
   refreshAll();
   lastRefreshMs_ = millis();
   awakeStartMs_  = millis();   // awake window starts after fetch + display
@@ -471,6 +492,7 @@ void UsageApp::loop() {
       ui_.setTextWeight(cfgStore_.uiWeight());
       ui_.setSmallTextCrisp(cfgStore_.uiSmallCrisp());
       ui_.drawDashboard(snapshot_, currentStatus(), now());
+      g_lastDrawHash = 0;       // direct draw -> invalidate the skip fingerprint
     }
     lastRefreshMs_ = millis();   // don't immediately refetch on the next tick
     extendAwake("font-test");
@@ -494,9 +516,10 @@ void UsageApp::loop() {
     if (ensureWiFi(10000)) {
       runPendingTokenTests();   // test changed creds (repoints member clients)
       configureProviders();     // always re-wire: left/right or tokens may have changed
-      refreshAll();             // repaint with the new palette + displayed data
+      refreshAll(true);         // settings may change pixels without changing data
     } else {
       ui_.drawDashboard(snapshot_, currentStatus(), now());
+      g_lastDrawHash = 0;       // direct draw -> invalidate the skip fingerprint
     }
     g_battFullMv = cfgStore_.battFullMv();   // pick up a changed battery setting
     sysLog("[sleep] settings applied: deep_sleep=%d window=%lus",
@@ -512,6 +535,7 @@ void UsageApp::loop() {
 
   // Countdown tick (~every 10 s) for diagnostics while deep sleep is enabled.
   const unsigned long nowMs = millis();
+  uptimeSec();   // anchor cold-boot epoch as soon as the clock is valid
   if (cfgStore_.deepSleepEnabled() && nowMs - lastSleepTickMs_ >= 10000UL) {
     lastSleepTickMs_ = nowMs;
     sysLog("[sleep] awake, sleeps in %ds", sleepInSec());
@@ -667,6 +691,14 @@ void UsageApp::syncTime() {
 
 long UsageApp::now() { return static_cast<long>(time(nullptr)); }
 
+// Seconds since the last cold (power-on) boot, spanning deep-sleep wakes. Anchors
+// the cold-boot epoch on the first call with a valid clock; 0 until then.
+long UsageApp::uptimeSec() {
+  const long t = now();
+  if (g_coldBootEpoch == 0 && t >= kSanityFloorEpoch) g_coldBootEpoch = t;
+  return (g_coldBootEpoch > 0 && t >= g_coldBootEpoch) ? t - g_coldBootEpoch : 0;
+}
+
 UiStatus UsageApp::currentStatus() {
   UiStatus s;
   s.wifiConnected  = (WiFi.status() == WL_CONNECTED);
@@ -683,15 +715,24 @@ UiStatus UsageApp::currentStatus() {
   // Runtime estimate, same gate in both modes: a real SOC drop proves discharge
   // (estimate wins); else the mV trend decides "Charging" vs "Calibrating…". No
   // USB flag — HWCDC isPlugged() is unreliable on the E1001.
-  const bool deep = cfgStore_.deepSleepEnabled();
+  const bool  deep = cfgStore_.deepSleepEnabled();
+  const int   soc  = s.batteryPercent;
   const float days = deep ? battery_tracker_get_days_remaining(cfgStore_.refreshSec())
                           : battery_tracker_get_days_remaining_awake();
   if (days >= 0.0f) {
-    s.batteryDays = days;   s.batteryCharging = false;          // estimate ready
+    s.batteryDays = days;   s.batteryCharging = false;          // live estimate
+    s.batteryEstPlaceholder = false;
+    if (soc >= 0) cfgStore_.battEstRecord(deep, soc, days);     // learn this SOC point
   } else if (battery_is_charging()) {
     s.batteryDays = -2.0f;  s.batteryCharging = true;           // mV rising
+    s.batteryEstPlaceholder = false;
   } else {
-    s.batteryDays = -1.0f;  s.batteryCharging = false;          // calibrating
+    // Calibrating: show a learned placeholder (italic) if we have one for this
+    // SOC + mode (or the carried last estimate); else fall back to "Calibrating".
+    const float ph = (soc >= 0) ? cfgStore_.battEstLookup(deep, soc) : -1.0f;
+    s.batteryCharging = false;
+    if (ph >= 0.0f) { s.batteryDays = ph;    s.batteryEstPlaceholder = true; }
+    else            { s.batteryDays = -1.0f; s.batteryEstPlaceholder = false; }
   }
   s.deepSleepOn = deep;   // header moon indicator
   return s;
@@ -839,7 +880,78 @@ void UsageApp::fetchLocalStats() {
   );
 }
 
-void UsageApp::refreshAll() {
+// ---------------------------------------------------------------------------
+// Render fingerprint: hashes exactly what the dashboard paints, EXCLUDING the
+// pure time-derived strings (Fetch Last/Next times, reset countdowns). When the
+// fingerprint matches the last painted one, the wake repaint is skipped and the
+// GRAY4 full-refresh flash never runs. FNV-1a.
+// ---------------------------------------------------------------------------
+static void fnv(uint32_t& h, const void* data, size_t len) {
+  const uint8_t* p = static_cast<const uint8_t*>(data);
+  for (size_t i = 0; i < len; ++i) { h ^= p[i]; h *= 16777619u; }
+}
+static void fnvI(uint32_t& h, long v)        { fnv(h, &v, sizeof(v)); }
+static void fnvS(uint32_t& h, const char* s) { fnv(h, s, strlen(s)); }
+
+static void fpWindow(uint32_t& h, const WindowQuota& w) {
+  fnvI(h, w.present ? 1 : 0);
+  if (!w.present) return;
+  fnvI(h, (long)(w.usedPercent + 0.5));   // the displayed integer percent
+  fnvI(h, (long)w.status);                // bar color
+  fnvI(h, w.resetEpoch);                  // changes only when the window rolls
+}
+
+static void fpProvider(uint32_t& h, const ProviderQuota& p, long n) {
+  fnvS(h, p.name);
+  fnvI(h, (p.ok ? 1 : 0) | (p.needsRelogin ? 2 : 0) | (p.disabled ? 4 : 0) |
+          (p.isStale(n, 900) ? 8 : 0));   // stale marker transitions repaint
+  fnvS(h, p.failReason);
+  fpWindow(h, p.session);
+  fpWindow(h, p.weekly);
+  fpWindow(h, p.weeklySonnet);
+  fpWindow(h, p.weeklyOpus);
+  fnvI(h, p.extraEnabled ? 1 : 0);
+  fnvI(h, (long)p.extraUsedCents);
+  fnvI(h, (long)p.extraLimitCents);
+  fnvI(h, p.hasBalance ? 1 : 0);
+  fnvI(h, (long)p.balance);               // platform token-usage line
+  if (p.hasPlan) fnvS(h, p.planType);
+  fnvI(h, (p.needAdminKey ? 1 : 0) | (p.hasCost ? 2 : 0) | (p.hasLeft ? 4 : 0) |
+          (p.platSpendMode ? 8 : 0));
+  fnvI(h, (long)p.costCents);
+  fnvI(h, (long)p.prepaidCents);
+  fnvI(h, (long)p.leftCents);
+  fnvI(h, p.platWindowDays);
+  fnvI(h, p.platCount);
+  for (uint8_t i = 0; i < p.platCount; ++i) {
+    fnvS(h, p.platModels[i].name);
+    fnvI(h, (long)p.platModels[i].cents);
+  }
+  if (p.local.enabled) {
+    fnvI(h, p.local.available ? 1 : 0);
+    fnvS(h, p.local.status);
+    fnvI(h, (long)p.local.todayTokens);
+    fnvI(h, p.local.sessionCount);
+    fnvI(h, p.local.modelCount);
+  }
+}
+
+static uint32_t drawFingerprint(const UsageSnapshot& s, const UiStatus& st, long n) {
+  uint32_t h = 2166136261u;
+  fpProvider(h, s.left, n);
+  fpProvider(h, s.right, n);
+  fnvI(h, st.wifiConnected ? 1 : 0);
+  fnvS(h, st.ipAddress.c_str());
+  fnvI(h, st.batteryPercent / 5);          // icon-fill granularity; ADC-jitter immune
+  fnvI(h, st.batteryDays >= 0.0f ? (long)(st.batteryDays * 24.0f + 0.5f) : -1);
+  fnvI(h, (st.batteryCharging ? 1 : 0) | (st.batteryEstPlaceholder ? 2 : 0) |
+          (st.deepSleepOn ? 4 : 0));
+  // Excluded on purpose: lastFetchEpoch/nextFetchEpoch and the now-derived
+  // countdowns — kMaxNoRepaintSec bounds how stale they can look.
+  return h;
+}
+
+void UsageApp::refreshAll(bool forceDraw) {
   const long n = now();
   sysLog("[api] cycle start now=%ld time_synced=%d", n, timeSynced_ ? 1 : 0);
   fetchLeft(n);
@@ -848,7 +960,18 @@ void UsageApp::refreshAll() {
   setProviderNames();
   printSnapshot();
   lastFetchEpoch_ = now();   // for the Last/Next Fetch header
-  ui_.drawDashboard(snapshot_, currentStatus(), now());
+  const UiStatus st = currentStatus();
+  const uint32_t fp = drawFingerprint(snapshot_, st, n);
+  const bool capExpired = (g_lastDrawEpoch <= 0) ||
+                          (n - g_lastDrawEpoch >= kMaxNoRepaintSec);
+  if (!forceDraw && fp == g_lastDrawHash && g_lastDrawHash != 0 && !capExpired) {
+    // Nothing the user can see has changed — keep the panel image (zero flicker).
+    sysLog("[ui] unchanged, repaint skipped (age=%lds)", n - g_lastDrawEpoch);
+    return;
+  }
+  ui_.drawDashboard(snapshot_, st, n);
+  g_lastDrawHash  = fp;
+  g_lastDrawEpoch = n;
   sysLog("[ui] dashboard drawn");
 }
 
