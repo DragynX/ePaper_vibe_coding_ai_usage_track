@@ -3,6 +3,7 @@
 #include <DNSServer.h>
 #include <ESPAsyncWebServer.h>
 #include <ESPmDNS.h>
+#include <Preferences.h>
 #include <WiFi.h>
 #include <driver/gpio.h>
 #include <esp_sleep.h>
@@ -46,6 +47,30 @@ RTC_DATA_ATTR static long     g_lastDrawEpoch = 0;
 // on screen never go more than an hour stale.
 static const long kMaxNoRepaintSec = 3600;
 
+// WiFi fast-connect cache (RTC, survives deep sleep): the AP BSSID + channel from
+// the last good connect let a wake skip the all-channel scan and associate
+// directly (~2-4s -> ~1s). Keeps DHCP (no static-IP conflict risk). Slow path on
+// any miss re-validates and refreshes the cache.
+RTC_DATA_ATTR static uint8_t g_wifiBssid[6]   = {0};
+RTC_DATA_ATTR static int32_t g_wifiChannel    = 0;
+RTC_DATA_ATTR static bool    g_wifiCacheValid = false;
+
+// Per-side fetch cache, NVS-backed (survives deep sleep AND power loss): the last
+// captured values to keep displaying, the gate timestamp (at most one real call
+// per provider per 5 min), and the 429 backoff deadline. `prov` invalidates the
+// slot on a left/right provider swap. ProviderQuota is POD, so the whole struct
+// round-trips through NVS putBytes/getBytes. Loaded once in begin().
+struct FetchSlot {
+  uint8_t       prov;
+  long          lastFetch;    // epoch of the last real network call (rate gate)
+  long          retryEpoch;   // 429 backoff deadline (0 = none)
+  uint8_t       valid;        // 1 = q holds real last-good data
+  ProviderQuota q;
+};
+static FetchSlot g_left{}, g_right{};
+static const long kRateLimitBackoffSec   = 35 * 60;  // 35 min, per Anthropic's sticky 429
+static const long kMinFetchIntervalSec   = 300;      // fixed 5-min per-provider rate gate
+
 // Mirror log output to both USB CDC (Serial, visible on the COM port) and the
 // external UART (Serial1, pins 43/44). EspAppLog accepts one Stream*.
 class TeeStream : public Stream {
@@ -80,6 +105,12 @@ static int      g_battMv     = -1;   // last actual battery voltage (mV), -1 = u
 // Battery: GPIO1 ADC behind a divider (halves the voltage), gated by GPIO21
 // (must be HIGH to read — Seeed reTerminal E series wiki).
 static int readBatteryPercent() {
+  // ~1 s freshness cache: the battery can't move in a second, and several callers
+  // sample per wake (currentStatus, the /api/status battPct_ + battDays_ pair).
+  // Each real read toggles GPIO21 + a 10 ms ADC settle, so dedup the bursts.
+  static uint32_t lastMs = 0;
+  static int      lastPct = -1;
+  if (lastPct >= 0 && (uint32_t)(millis() - lastMs) < 1000) return lastPct;
   pinMode(21, OUTPUT);
   digitalWrite(21, HIGH);
   delay(10);
@@ -88,7 +119,9 @@ static int readBatteryPercent() {
   digitalWrite(21, LOW);
   const int adcMv = static_cast<int>(mv / 16);
   g_battMv = adcMv * 2;   // hardware halves the battery voltage
-  return umBatteryPercent(adcMv, g_battFullMv);
+  lastMs = millis();
+  lastPct = umBatteryPercent(adcMv, g_battFullMv);
+  return lastPct;
 }
 
 // Actual battery voltage (mV) from the most recent percent read.
@@ -289,6 +322,11 @@ void UsageApp::configureProviders() {
 
 enum { kCredNone = 0, kCredOk = 1, kCredFail = 2, kCredTesting = 3 };
 
+// Composes the on-screen failure reason; defined later in the file. Declared here
+// so testProvider can reuse it to capture the same text for the Credentials page.
+static void buildFailReason(char* buf, size_t n, const ProviderQuota& p,
+                            int status, const String& err);
+
 // Validate one provider's stored credentials by making its real usage call into
 // a scratch wiring. Persists any rotated token on success. Returns kCredOk/Fail.
 uint8_t UsageApp::testProvider(uint8_t prov) {
@@ -299,8 +337,36 @@ uint8_t UsageApp::testProvider(uint8_t prov) {
   if (!client) return kCredFail;
   ProviderQuota tmp;
   const bool ok = client->fetch(now(), tmp);
+  if (ok) {
+    credError_[prov] = "";
+  } else {
+    char rb[96];
+    buildFailReason(rb, sizeof(rb), tmp, http_.lastStatus(), http_.lastError());
+    credError_[prov] = rb;   // provider response text for the Credentials page
+  }
   if (ok && authPtr) {
     store_.save(providerKey(prov), *authPtr, seedFor(prov, cfgStore_));
+  }
+  // Reuse this fresh fetch for a displayed side so the repaint's refreshAll()
+  // doesn't immediately re-fetch the same provider (a duplicate HTTPS round trip
+  // and a needless second hit on the rate-limited Claude usage endpoint).
+  if (ok) {
+    if (prov == UM_PROV_CLAUDE) {
+      tmp.hasPlan = true;
+      strncpy(tmp.planType, cfgStore_.claudeSub().c_str(), sizeof(tmp.planType) - 1);
+    }
+    // Persist the tested side's slot so the Credentials test counts as the
+    // window's one call (gates the next scheduled fetch) and its result is the
+    // saved last-good that survives the reboot the user often does after saving.
+    const long tn = now();
+    if (prov == cfgStore_.leftProvider()) {
+      snapshot_.left = tmp; leftFresh_ = true;
+      g_left = FetchSlot{ prov, tn, 0, 1, tmp }; saveFetchSlot(true);
+    }
+    if (prov == cfgStore_.rightProvider()) {
+      snapshot_.right = tmp; rightFresh_ = true;
+      g_right = FetchSlot{ prov, tn, 0, 1, tmp }; saveFetchSlot(false);
+    }
   }
   sysLog("[test] %s -> %s (status=%d)", providerName(prov), ok ? "OK" : "FAIL",
          http_.lastStatus());
@@ -312,13 +378,37 @@ void UsageApp::runPendingTokenTests() {
   cfgStore_.clearPendingTest();
   if (!mask) return;
   for (uint8_t prov = 1; prov <= 7; ++prov) {
-    if (mask & (uint8_t)(1u << prov)) {
-      credStatus_[prov] = kCredTesting;
+    // Test only checked AND configured providers — a checked-but-empty provider
+    // would just fail a pointless HTTPS round trip; re-testing a stored token
+    // works because a saved token makes isConfigured() true.
+    if ((mask & (uint8_t)(1u << prov)) && isConfigured(prov, cfgStore_)) {
       credStatus_[prov] = testProvider(prov);
     }
   }
-  // Note: testProvider repoints member usage clients at a scratch OAuthClient;
-  // the caller must re-run configureProviders() before normal fetching resumes.
+  // testProvider repointed the member usage clients at a now-destroyed stack
+  // OAuthClient; re-wire them here so the invariant is self-enforcing (no
+  // dangling pointer if anything fetches before the caller reconfigures).
+  configureProviders();
+}
+
+// Minimal JSON string escaper for provider error text (quotes/backslashes/control
+// chars). credStatusJson hand-builds JSON, so the error field needs escaping.
+static String jsonEsc(const String& in) {
+  String o; o.reserve(in.length() + 8);
+  for (size_t i = 0; i < in.length(); ++i) {
+    const char c = in[i];
+    switch (c) {
+      case '"':  o += "\\\""; break;
+      case '\\': o += "\\\\"; break;
+      case '\n': o += "\\n";  break;
+      case '\r': o += "\\r";  break;
+      case '\t': o += "\\t";  break;
+      default:
+        if ((unsigned char)c < 0x20) { char b[7]; snprintf(b, sizeof(b), "\\u%04x", c); o += b; }
+        else o += c;
+    }
+  }
+  return o;
 }
 
 String UsageApp::credStatusJson() {
@@ -328,12 +418,17 @@ String UsageApp::credStatusJson() {
   String s = "{";
   for (uint8_t p = 1; p <= 7; ++p) {
     if (p > 1) s += ",";
-    // A provider with no stored token is always "none" (white), even if it
-    // failed earlier — covers the Clear Token action and empty providers.
-    const uint8_t st = isConfigured(p, cfgStore_) ? credStatus_[p] : 0;
-    s += "\""; s += kKeys[p]; s += "\":\"";
-    s += kVal[st <= 3 ? st : 0];
-    s += "\"";
+    // No stored token -> "none" (white). A stored-but-untested token reports
+    // "set" so the UI still shows Clear Token (testing is now opt-in, so an
+    // untested token would otherwise stay "none" and hide the button).
+    const bool cfg = isConfigured(p, cfgStore_);
+    const uint8_t st = cfg ? credStatus_[p] : 0;
+    const char* v = (cfg && st == kCredNone) ? "set" : kVal[st <= 3 ? st : 0];
+    s += "\""; s += kKeys[p]; s += "\":\""; s += v; s += "\"";
+    // Surface the provider's response text for a failed test.
+    if (cfg && st == kCredFail && credError_[p].length()) {
+      s += ",\""; s += kKeys[p]; s += "_err\":\""; s += jsonEsc(credError_[p]); s += "\"";
+    }
   }
   s += "}";
   return s;
@@ -386,6 +481,7 @@ void UsageApp::begin() {
          (int)cause, firstBoot ? 1 : 0, (unsigned)g_wakeCount, awakeWindowMs_);
 
   cfgStore_.begin();
+  loadFetchSlots();   // last-good values + gate stamps before the first draw/fetch
   // Apply the saved timezone immediately so the RTC time (kept across deep
   // sleep, in UTC) renders as local time right away — before NTP re-applies it.
   setenv("TZ", cfgStore_.tz().c_str(), 1);
@@ -510,6 +606,11 @@ void UsageApp::loop() {
   // etc.). Suppressed while the playground owns the screen (re-applies on exit).
   if (redrawPending_ && !fontTestOn_) {
     redrawPending_ = false;
+    // Re-apply the timezone so a TZ change takes effect immediately (the clock is
+    // kept in UTC; only this localtime offset changed) — without it the new TZ
+    // would not show until the next reboot/deep-sleep wake re-runs begin().
+    setenv("TZ", cfgStore_.tz().c_str(), 1);
+    tzset();
     leftFailCount_ = rightFailCount_ = 0;
     leftDisabled_  = rightDisabled_  = false;
     leftFailReason_[0] = rightFailReason_[0] = '\0';
@@ -665,20 +766,53 @@ void UsageApp::enterDeepSleep() {
 // WiFi helpers
 // ---------------------------------------------------------------------------
 
+static void cacheWifiBss() {
+  uint8_t* b = WiFi.BSSID();
+  if (!b) { g_wifiCacheValid = false; return; }
+  memcpy(g_wifiBssid, b, 6);
+  g_wifiChannel    = WiFi.channel();
+  g_wifiCacheValid = true;
+}
+
 bool UsageApp::ensureWiFi(uint32_t timeoutMs) {
   if (WiFi.status() == WL_CONNECTED) {
     sysLog("[wifi] already connected");
     return true;
   }
-  sysLog("[wifi] connecting (timeout=%ums)...", (unsigned)timeoutMs);
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+
+  // Fast path: associate directly to the cached AP (BSSID + channel) using the
+  // creds stored in NVS, skipping the scan. Bounded to ~4s, then fall back.
+  if (g_wifiCacheValid) {
+    wifi_config_t cfg = {};
+    if (esp_wifi_get_config(WIFI_IF_STA, &cfg) == ESP_OK && cfg.sta.ssid[0]) {
+      sysLog("[wifi] fast-connect ch=%d...", (int)g_wifiChannel);
+      WiFi.begin(reinterpret_cast<const char*>(cfg.sta.ssid),
+                 reinterpret_cast<const char*>(cfg.sta.password),
+                 g_wifiChannel, g_wifiBssid);
+      const uint32_t start = millis();
+      const uint32_t fast = timeoutMs < 4000 ? timeoutMs : 4000;
+      while (WiFi.status() != WL_CONNECTED && millis() - start < fast) delay(50);
+      if (WiFi.status() == WL_CONNECTED) {
+        cacheWifiBss();
+        sysLog("[wifi] fast-connect ok: %s (%ums)", WiFi.localIP().toString().c_str(),
+               (unsigned)(millis() - start));
+        return true;
+      }
+    }
+    g_wifiCacheValid = false;           // stale (AP moved/off) -> generic reconnect
+    WiFi.disconnect(false);
+  }
+
+  sysLog("[wifi] connecting (timeout=%ums)...", (unsigned)timeoutMs);
   WiFi.begin();
   const uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
     delay(250);
   }
   if (WiFi.status() == WL_CONNECTED) {
+    cacheWifiBss();
     sysLog("[wifi] connected: %s", WiFi.localIP().toString().c_str());
     return true;
   }
@@ -772,6 +906,42 @@ void UsageApp::setProviderNames() {
 }
 
 // ---------------------------------------------------------------------------
+// NVS fetch cache (ns "umfetch"): the two per-side FetchSlot blobs survive deep
+// sleep AND power loss, so a cold boot shows the last captured values instantly
+// and the 5-min rate gate stays honest across reboots. ProviderQuota is POD, so
+// the whole slot round-trips as raw bytes. One putBytes per real fetch (~700 B).
+// ---------------------------------------------------------------------------
+
+void UsageApp::loadFetchSlots() {
+  Preferences p;
+  if (!p.begin("umfetch", true)) return;   // read-only; absent on first ever boot
+  if (p.getBytesLength("fc_left")  == sizeof(FetchSlot))
+    p.getBytes("fc_left",  &g_left,  sizeof(FetchSlot));
+  if (p.getBytesLength("fc_right") == sizeof(FetchSlot))
+    p.getBytes("fc_right", &g_right, sizeof(FetchSlot));
+  p.end();
+  sysLog("[cache] loaded slots L:valid=%u prov=%u R:valid=%u prov=%u",
+         (unsigned)g_left.valid,  (unsigned)g_left.prov,
+         (unsigned)g_right.valid, (unsigned)g_right.prov);
+}
+
+void UsageApp::saveFetchSlot(bool left) {
+  const FetchSlot& src = left ? g_left : g_right;
+  const char* key = left ? "fc_left" : "fc_right";
+  Preferences p;
+  if (!p.begin("umfetch", false)) return;
+  // Skip-if-unchanged: only erase/write flash when the stored blob actually
+  // differs from what we're about to write (saves flash wear + the write time).
+  FetchSlot cur{};
+  if (p.getBytesLength(key) == sizeof(FetchSlot)) {
+    p.getBytes(key, &cur, sizeof(FetchSlot));
+    if (memcmp(&cur, &src, sizeof(FetchSlot)) == 0) { p.end(); return; }
+  }
+  p.putBytes(key, &src, sizeof(FetchSlot));
+  p.end();
+}
+
+// ---------------------------------------------------------------------------
 // Fetch
 // ---------------------------------------------------------------------------
 
@@ -798,34 +968,78 @@ void UsageApp::fetchLeft(long n) {
            providerName(cfgStore_.leftProvider()), leftFailReason_);
     return;
   }
-  sysLog("[fetch] left %s", providerName(cfgStore_.leftProvider()));
-  if (!leftClient_ || !isConfigured(cfgStore_.leftProvider(), cfgStore_)) {
+  const uint8_t lprov = cfgStore_.leftProvider();
+  const bool    lHave = g_left.valid && g_left.prov == lprov;
+  sysLog("[fetch] left %s", providerName(lprov));
+  // Rate-limit backoff: don't poke the endpoint (every retry re-arms the 429);
+  // keep showing the preserved last-good, marked stale, with a retry time.
+  if (g_left.retryEpoch > 0 && g_left.prov == lprov &&
+      n > kSanityFloorEpoch && n < g_left.retryEpoch) {
+    snapshot_.left = lHave ? g_left.q : ProviderQuota();
+    snapshot_.left.rateLimited = true;
+    snapshot_.left.retryEpoch  = g_left.retryEpoch;
+    sysLog("[api] %s rate-limit backoff, %lds left", providerName(lprov),
+           g_left.retryEpoch - n);
+    setProviderNames();
+    return;
+  }
+  if (!leftClient_ || !isConfigured(lprov, cfgStore_)) {
     sysLog("[left] not configured — skipping");
     snapshot_.left = ProviderQuota();
     setProviderNames();
     return;
   }
-  if (leftClient_->fetch(n, snapshot_.left)) {
+  // Rate gate: at most one real call per provider per 5 min. Inside the window
+  // keep the saved values and defer to the next scheduled cycle (the credentials
+  // token test is exempt — it doesn't come through here). Only gate when we have
+  // cached values to show; a fresh boot with no cache must fetch to fill the screen.
+  if (lHave && n > kSanityFloorEpoch && (n - g_left.lastFetch) < kMinFetchIntervalSec) {
+    snapshot_.left = g_left.q;
+    sysLog("[api] %s gated (%lds since last) -> deferred", providerName(lprov),
+           n - g_left.lastFetch);
+    setProviderNames();
+    return;
+  }
+  ProviderQuota q;
+  const bool ok = leftClient_->fetch(n, q);
+  if (ok) {
+    snapshot_.left = q;
     leftFailCount_ = 0;
-    credStatus_[cfgStore_.leftProvider()] = kCredOk;
+    credStatus_[lprov] = kCredOk;
     sysLog("[api] %s OK session=%d%% weekly=%d%% (present s=%d w=%d)",
-           providerName(cfgStore_.leftProvider()),
+           providerName(lprov),
            (int)(snapshot_.left.session.usedPercent + 0.5),
            (int)(snapshot_.left.weekly.usedPercent + 0.5),
            snapshot_.left.session.present ? 1 : 0,
            snapshot_.left.weekly.present ? 1 : 0);
-    if (cfgStore_.leftProvider() == UM_PROV_CLAUDE) {
+    if (lprov == UM_PROV_CLAUDE) {
       snapshot_.left.hasPlan = true;
       strncpy(snapshot_.left.planType, cfgStore_.claudeSub().c_str(),
               sizeof(snapshot_.left.planType) - 1);
     }
+    g_left = FetchSlot{ lprov, n, 0, 1, snapshot_.left };   // cache values + gate stamp
+    saveFetchSlot(true);
     if (leftAuthPtr_) {
-      store_.save(providerKey(cfgStore_.leftProvider()), *leftAuthPtr_,
-                  seedFor(cfgStore_.leftProvider(), cfgStore_));
+      store_.save(providerKey(lprov), *leftAuthPtr_, seedFor(lprov, cfgStore_));
       sysLog("[fetch] left ok, token saved");
     }
+  } else if (http_.lastStatus() == 429) {
+    // 429: preserve last-good, mark rate-limited, back off — do NOT trip the breaker.
+    snapshot_.left = lHave ? g_left.q : q;
+    snapshot_.left.rateLimited = true;
+    g_left.prov = lprov;
+    if (n > kSanityFloorEpoch) { g_left.retryEpoch = n + kRateLimitBackoffSec; g_left.lastFetch = n; }
+    snapshot_.left.retryEpoch = g_left.retryEpoch;
+    saveFetchSlot(true);
+    credStatus_[lprov] = kCredFail;
+    sysLog("[api] %s 429 rate-limited -> backoff until %ld (last-good preserved)",
+           providerName(lprov), g_left.retryEpoch);
   } else {
-    credStatus_[cfgStore_.leftProvider()] = kCredFail;
+    snapshot_.left = q;
+    if (n > kSanityFloorEpoch) {   // count the attempt for the gate (in-RAM only)
+      g_left.prov = lprov; g_left.lastFetch = n;   // no NVS write on a plain fail
+    }
+    credStatus_[lprov] = kCredFail;
     buildFailReason(leftFailReason_, sizeof(leftFailReason_),
                     snapshot_.left, http_.lastStatus(), http_.lastError());
     if (++leftFailCount_ >= 2) {
@@ -835,13 +1049,11 @@ void UsageApp::fetchLeft(long n) {
               sizeof(snapshot_.left.failReason) - 1);
     }
     sysLog("[api] %s FAILED (%u/2) reason=%s",
-           providerName(cfgStore_.leftProvider()), leftFailCount_, leftFailReason_);
+           providerName(lprov), leftFailCount_, leftFailReason_);
     if (leftAuthPtr_ && snapshot_.left.refreshed) {
-      // Refresh succeeded but the usage call failed: the rotated token lives only
-      // in RAM and dies on deep sleep. Persist it now or the next wake replays the
-      // stale token and the provider forces a re-login (OpenAI invalidates reuse).
-      store_.save(providerKey(cfgStore_.leftProvider()), *leftAuthPtr_,
-                  seedFor(cfgStore_.leftProvider(), cfgStore_));
+      // Refresh succeeded but the usage call failed: persist the rotated token now
+      // or the next wake replays the stale one and forces a re-login.
+      store_.save(providerKey(lprov), *leftAuthPtr_, seedFor(lprov, cfgStore_));
       sysLog("[fetch] left failed but token rotated -> saved");
     }
   }
@@ -859,34 +1071,69 @@ void UsageApp::fetchRight(long n) {
            providerName(cfgStore_.rightProvider()), rightFailReason_);
     return;
   }
-  sysLog("[fetch] right %s", providerName(cfgStore_.rightProvider()));
-  if (!rightClient_ || !isConfigured(cfgStore_.rightProvider(), cfgStore_)) {
+  const uint8_t rprov = cfgStore_.rightProvider();
+  const bool    rHave = g_right.valid && g_right.prov == rprov;
+  sysLog("[fetch] right %s", providerName(rprov));
+  if (g_right.retryEpoch > 0 && g_right.prov == rprov &&
+      n > kSanityFloorEpoch && n < g_right.retryEpoch) {
+    snapshot_.right = rHave ? g_right.q : ProviderQuota();
+    snapshot_.right.rateLimited = true;
+    snapshot_.right.retryEpoch  = g_right.retryEpoch;
+    sysLog("[api] %s rate-limit backoff, %lds left", providerName(rprov),
+           g_right.retryEpoch - n);
+    setProviderNames();
+    return;
+  }
+  if (!rightClient_ || !isConfigured(rprov, cfgStore_)) {
     sysLog("[right] not configured — skipping");
     snapshot_.right = ProviderQuota();
     setProviderNames();
     return;
   }
-  if (rightClient_->fetch(n, snapshot_.right)) {
+  if (rHave && n > kSanityFloorEpoch && (n - g_right.lastFetch) < kMinFetchIntervalSec) {
+    snapshot_.right = g_right.q;
+    sysLog("[api] %s gated (%lds since last) -> deferred", providerName(rprov),
+           n - g_right.lastFetch);
+    setProviderNames();
+    return;
+  }
+  ProviderQuota q;
+  const bool ok = rightClient_->fetch(n, q);
+  if (ok) {
+    snapshot_.right = q;
     rightFailCount_ = 0;
-    credStatus_[cfgStore_.rightProvider()] = kCredOk;
+    credStatus_[rprov] = kCredOk;
     sysLog("[api] %s OK session=%d%% weekly=%d%% (present s=%d w=%d)",
-           providerName(cfgStore_.rightProvider()),
+           providerName(rprov),
            (int)(snapshot_.right.session.usedPercent + 0.5),
            (int)(snapshot_.right.weekly.usedPercent + 0.5),
            snapshot_.right.session.present ? 1 : 0,
            snapshot_.right.weekly.present ? 1 : 0);
-    if (cfgStore_.rightProvider() == UM_PROV_CLAUDE) {
+    if (rprov == UM_PROV_CLAUDE) {
       snapshot_.right.hasPlan = true;
       strncpy(snapshot_.right.planType, cfgStore_.claudeSub().c_str(),
               sizeof(snapshot_.right.planType) - 1);
     }
+    g_right = FetchSlot{ rprov, n, 0, 1, snapshot_.right };
+    saveFetchSlot(false);
     if (rightAuthPtr_) {
-      store_.save(providerKey(cfgStore_.rightProvider()), *rightAuthPtr_,
-                  seedFor(cfgStore_.rightProvider(), cfgStore_));
+      store_.save(providerKey(rprov), *rightAuthPtr_, seedFor(rprov, cfgStore_));
       sysLog("[fetch] right ok, token saved");
     }
+  } else if (http_.lastStatus() == 429) {
+    snapshot_.right = rHave ? g_right.q : q;
+    snapshot_.right.rateLimited = true;
+    g_right.prov = rprov;
+    if (n > kSanityFloorEpoch) { g_right.retryEpoch = n + kRateLimitBackoffSec; g_right.lastFetch = n; }
+    snapshot_.right.retryEpoch = g_right.retryEpoch;
+    saveFetchSlot(false);
+    credStatus_[rprov] = kCredFail;
+    sysLog("[api] %s 429 rate-limited -> backoff until %ld (last-good preserved)",
+           providerName(rprov), g_right.retryEpoch);
   } else {
-    credStatus_[cfgStore_.rightProvider()] = kCredFail;
+    snapshot_.right = q;
+    if (n > kSanityFloorEpoch) { g_right.prov = rprov; g_right.lastFetch = n; }   // no NVS write on a plain fail
+    credStatus_[rprov] = kCredFail;
     buildFailReason(rightFailReason_, sizeof(rightFailReason_),
                     snapshot_.right, http_.lastStatus(), http_.lastError());
     if (++rightFailCount_ >= 2) {
@@ -896,10 +1143,9 @@ void UsageApp::fetchRight(long n) {
               sizeof(snapshot_.right.failReason) - 1);
     }
     sysLog("[api] %s FAILED (%u/2) reason=%s",
-           providerName(cfgStore_.rightProvider()), rightFailCount_, rightFailReason_);
+           providerName(rprov), rightFailCount_, rightFailReason_);
     if (rightAuthPtr_ && snapshot_.right.refreshed) {
-      store_.save(providerKey(cfgStore_.rightProvider()), *rightAuthPtr_,
-                  seedFor(cfgStore_.rightProvider(), cfgStore_));
+      store_.save(providerKey(rprov), *rightAuthPtr_, seedFor(rprov, cfgStore_));
       sysLog("[fetch] right failed but token rotated -> saved");
     }
   }
@@ -939,7 +1185,8 @@ static void fpWindow(uint32_t& h, const WindowQuota& w) {
 static void fpProvider(uint32_t& h, const ProviderQuota& p, long n) {
   fnvS(h, p.name);
   fnvI(h, (p.ok ? 1 : 0) | (p.needsRelogin ? 2 : 0) | (p.disabled ? 4 : 0) |
-          (p.isStale(n, 900) ? 8 : 0));   // stale marker transitions repaint
+          (p.isStale(n, 900) ? 8 : 0) | (p.rateLimited ? 16 : 0));
+  fnvI(h, p.retryEpoch);   // fixed during a 429 backoff -> stays stable, no per-wake flash
   fnvS(h, p.failReason);
   fpWindow(h, p.session);
   fpWindow(h, p.weekly);
@@ -999,10 +1246,11 @@ static uint32_t drawFingerprint(const UsageSnapshot& s, const UiStatus& st, long
 void UsageApp::refreshAll(bool forceDraw) {
   const long n = now();
   sysLog("[api] cycle start now=%ld time_synced=%d", n, timeSynced_ ? 1 : 0);
-  fetchLeft(n);
-  fetchRight(n);
+  // A just-run credential test may have already fetched a displayed side; reuse it.
+  if (leftFresh_)  leftFresh_  = false; else fetchLeft(n);
+  if (rightFresh_) rightFresh_ = false; else fetchRight(n);
   fetchLocalStats();
-  setProviderNames();
+  setProviderNames();   // also names the sides reused from a cred test
   printSnapshot();
   lastFetchEpoch_ = now();   // for the Last/Next Fetch header
   const UiStatus st = currentStatus();

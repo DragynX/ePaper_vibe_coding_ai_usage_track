@@ -43,6 +43,8 @@ class UsageApp {
   void setProviderNames();
   void fetchLeft(long nowEpoch);
   void fetchRight(long nowEpoch);
+  void loadFetchSlots();         // begin(): pull both NVS fetch-cache slots
+  void saveFetchSlot(bool left); // persist one side's slot after a real fetch
   void fetchLocalStats();
   void configureProviders();
   void wireProvider(uint8_t prov, OAuthClient& oauth,
@@ -86,13 +88,15 @@ class UsageApp {
   // on always 0/1; font/dark/all/crisp <0 mean "leave unchanged" (dark/all/crisp apply on Save only).
   void onFontTest(int on, int font, int dark, int all, int crisp, int sizeIdx);
   static const int kTestSizes[11];
+  // All written by onFontTest() on the async server task, read by loop(): volatile
+  // so the plain stores can't be reordered past the ftRedraw_ flag store.
   volatile bool ftRedraw_   = false;
-  bool          fontTestOn_ = false;
-  int           ftFont_     = 9;     // test typeface index (Open Sans)
-  int           ftSizeIdx_  = 0;     // index into kTestSizes
-  bool          ftDark_     = false;
-  bool          ftAllView_  = false; // true = all-fonts list, false = single-font 3-mode view
-  bool          ftCrisp_    = false; // All Font View: true = crisp 1-bit (hard black), false = smooth AA
+  volatile bool fontTestOn_ = false;
+  volatile int  ftFont_     = 9;     // test typeface index (Open Sans)
+  volatile int  ftSizeIdx_  = 0;     // index into kTestSizes
+  volatile bool ftDark_     = false;
+  volatile bool ftAllView_  = false; // true = all-fonts list, false = single-font 3-mode view
+  volatile bool ftCrisp_    = false; // All Font View: true = crisp 1-bit (hard black), false = smooth AA
 
   // Per-side circuit breaker: after 2 consecutive fetch failures a side is
   // stopped (no more network calls) until the next settings save. Reason text
@@ -104,6 +108,9 @@ class UsageApp {
   // Per-provider credential status for the Credentials page (index = provider
   // id 0..7): 0=none/white 1=ok/green 2=fail/red 3=testing.
   uint8_t credStatus_[8] = {0};
+  // Per-provider last API-test failure text (empty on ok/none). Surfaced to the
+  // Credentials page as "<key>_err" so the UI can show the provider's response.
+  String  credError_[8];
 
   // Per-provider auth states
   AuthState claudeAuth_, codexAuth_, copilotAuth_,
@@ -134,6 +141,10 @@ class UsageApp {
   UsageClientBase* rightClient_  = nullptr;
   AuthState*       leftAuthPtr_  = nullptr;  // auth state to save after left refresh
   AuthState*       rightAuthPtr_ = nullptr;
+  // A credential test already fetched fresh data for a displayed side -> the next
+  // refreshAll() reuses it instead of re-fetching (avoids a duplicate HTTPS round
+  // trip + Claude 429 risk on a cred save).
+  bool leftFresh_ = false, rightFresh_ = false;
 
   // Owned strings for clients that store raw const char* pointers
   String minimaxBaseUrl_;

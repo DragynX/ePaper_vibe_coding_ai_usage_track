@@ -2,6 +2,9 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <cstddef>
+#include <cstdlib>
+#include <cstring>
 
 #include "ProjectConfig.h"
 
@@ -49,6 +52,9 @@ summary{padding:8px 10px;cursor:pointer;font-weight:600;font-size:13px;user-sele
 .secret{font-family:monospace;font-size:11px;height:44px;-webkit-text-security:disc}
 .secret:focus{-webkit-text-security:none}
 .clrbtn{display:none;float:right;font-size:11px;padding:2px 8px;margin-left:8px;border:none;border-radius:3px;background:#c33;color:#fff;cursor:pointer;font-family:inherit}
+.apitest{float:right;font-size:11px;font-weight:400;margin-left:8px;display:inline-flex;align-items:center;gap:4px;cursor:pointer;color:#555}
+.apitest input{width:auto;margin:0}
+.apierr{font-size:12px;color:#c33;margin-top:8px;white-space:pre-line}
 .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99;align-items:center;justify-content:center}
 .modal.on{display:flex}
 .modal .box{background:#fff;border-radius:8px;padding:20px;max-width:300px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.4)}
@@ -72,7 +78,8 @@ R"rawhtml(
 </div>
 
 <div id="p0" class="pane on">
-  <details><summary id="s_claude">Claude OAuth<button id="clr_claude" class="clrbtn" onclick="clearProv(event,1)">Clear Token</button></summary><div class="inner">
+  <p class="note" style="margin-top:8px">Check the API Test box to have a provider's token tested when you press Save Settings.</p>
+  <details><summary id="s_claude">Claude OAuth<button id="clr_claude" class="clrbtn" onclick="clearProv(event,1)">Clear Token</button><label class="apitest" onclick="event.stopPropagation()"><input type="checkbox" id="t_claude" onclick="event.stopPropagation()">API Test</label></summary><div class="inner">
     <label>Access Token<textarea class="secret" id="cl_at" rows="2" spellcheck="false"></textarea></label>
     <label>Refresh Token<textarea class="secret" id="cl_rt" rows="2" spellcheck="false"></textarea></label>
     <label>Expires At<input type="datetime-local" id="cl_exp"></label>
@@ -82,7 +89,7 @@ R"rawhtml(
       <option value="max">Max</option>
     </select></label>
   </div></details>
-  <details><summary id="s_claudeplat">Claude Platform (Admin Key)<button id="clr_claudeplat" class="clrbtn" onclick="clearProv(event,7)">Clear Token</button></summary><div class="inner">
+  <details><summary id="s_claudeplat">Claude Platform (Admin Key)<button id="clr_claudeplat" class="clrbtn" onclick="clearProv(event,7)">Clear Token</button><label class="apitest" onclick="event.stopPropagation()"><input type="checkbox" id="t_claudeplat" onclick="event.stopPropagation()">API Test</label></summary><div class="inner">
     <label>Admin API Key<textarea class="secret" id="cp_key" rows="2" spellcheck="false"></textarea></label>
     <label>Org ID (optional)<input type="text" id="cp_org" spellcheck="false"></label>
     <label>Device shows<span><label class="rad"><input type="radio" name="cp_mode" id="cp_mode_prepaid" value="prepaid" onchange="cpMode()"> Prepaid</label> <label class="rad"><input type="radio" name="cp_mode" id="cp_mode_spend" value="spend" onchange="cpMode()"> Spend</label></span></label>
@@ -94,25 +101,25 @@ R"rawhtml(
     </div>
     <p class="note">From console.anthropic.com &#8594; API Keys &#8594; Admin Key. <b>Prepaid</b>: device shows prepaid &#8722; 30-day cost remaining. <b>Spend</b>: device shows the chosen 7/14/30-day cost.</p>
   </div></details>
-  <details><summary id="s_codex">Codex OAuth<button id="clr_codex" class="clrbtn" onclick="clearProv(event,2)">Clear Token</button></summary><div class="inner">
+  <details><summary id="s_codex">Codex OAuth<button id="clr_codex" class="clrbtn" onclick="clearProv(event,2)">Clear Token</button><label class="apitest" onclick="event.stopPropagation()"><input type="checkbox" id="t_codex" onclick="event.stopPropagation()">API Test</label></summary><div class="inner">
     <label>Access Token<textarea class="secret" id="cx_at" rows="2" spellcheck="false"></textarea></label>
     <label>Refresh Token<textarea class="secret" id="cx_rt" rows="2" spellcheck="false"></textarea></label>
     <label>Account ID<input type="text" id="cx_aid"></label>
     <label>Last Refresh<input type="datetime-local" id="cx_lr"></label>
   </div></details>
-  <details><summary id="s_copilot">GitHub Copilot PAT<button id="clr_copilot" class="clrbtn" onclick="clearProv(event,3)">Clear Token</button></summary><div class="inner">
+  <details><summary id="s_copilot">GitHub Copilot PAT<button id="clr_copilot" class="clrbtn" onclick="clearProv(event,3)">Clear Token</button><label class="apitest" onclick="event.stopPropagation()"><input type="checkbox" id="t_copilot" onclick="event.stopPropagation()">API Test</label></summary><div class="inner">
     <label>Personal Access Token<textarea class="secret" id="co_pat" rows="2" spellcheck="false"></textarea></label>
     <p class="note">github.com/settings/tokens &#8594; Classic &#8594; needs "copilot" scope</p>
   </div></details>
-  <details><summary id="s_minimax">MiniMax<button id="clr_minimax" class="clrbtn" onclick="clearProv(event,4)">Clear Token</button></summary><div class="inner">
+  <details><summary id="s_minimax">MiniMax<button id="clr_minimax" class="clrbtn" onclick="clearProv(event,4)">Clear Token</button><label class="apitest" onclick="event.stopPropagation()"><input type="checkbox" id="t_minimax" onclick="event.stopPropagation()">API Test</label></summary><div class="inner">
     <label>API Key<textarea class="secret" id="mm_key" rows="2" spellcheck="false"></textarea></label>
     <label>Region<select id="mm_reg"><option value="0">International (api.minimax.io)</option><option value="1">China (api.minimaxi.com)</option></select></label>
   </div></details>
-  <details><summary id="s_kimi">Kimi<button id="clr_kimi" class="clrbtn" onclick="clearProv(event,5)">Clear Token</button></summary><div class="inner">
+  <details><summary id="s_kimi">Kimi<button id="clr_kimi" class="clrbtn" onclick="clearProv(event,5)">Clear Token</button><label class="apitest" onclick="event.stopPropagation()"><input type="checkbox" id="t_kimi" onclick="event.stopPropagation()">API Test</label></summary><div class="inner">
     <label>Auth Token (browser cookie kimi-auth)<textarea class="secret" id="ki_tok" rows="2" spellcheck="false"></textarea></label>
     <p class="note">Extract from www.kimi.com DevTools. No refresh &#8212; re-enter when expired.</p>
   </div></details>
-  <details><summary id="s_zai">Zai / Zhipu<button id="clr_zai" class="clrbtn" onclick="clearProv(event,6)">Clear Token</button></summary><div class="inner">
+  <details><summary id="s_zai">Zai / Zhipu<button id="clr_zai" class="clrbtn" onclick="clearProv(event,6)">Clear Token</button><label class="apitest" onclick="event.stopPropagation()"><input type="checkbox" id="t_zai" onclick="event.stopPropagation()">API Test</label></summary><div class="inner">
     <label>API Key<textarea class="secret" id="za_key" rows="2" spellcheck="false"></textarea></label>
     <label>Endpoint<input type="text" id="za_ep" placeholder="https://api.z.ai"></label>
   </div></details>
@@ -270,6 +277,7 @@ R"rawhtml(
   <button class="btn save" onclick="doSave()">Save Settings</button>
   <span id="msg"></span>
 </div>
+<div id="apierr" class="apierr"></div>
 <p class="note" style="text-align:center;margin-top:6px">Press Green button on device to wake up and access this page.</p>
 
 <div id="sleepModal" class="modal"><div class="box">
@@ -450,14 +458,22 @@ function setMsg(t,c){
 }
 async function doSave(){
   setMsg('Saving…','#888');
+  // Opt-in token testing: only providers whose "API Test" box is checked are
+  // tested (bit n = provider n). Remember which, so applyCred only surfaces
+  // their errors. Clear any stale error before this save.
+  let mask=0; testedProvs=[];
+  for(const p in TEST_IDS){const cb=document.getElementById(TEST_IDS[p]);
+    if(cb&&cb.checked){mask|=(1<<PROV_ID[p]);testedProvs.push(p);}}
+  document.getElementById('apierr').textContent='';
+  const payload=collect(); payload.test_mask=mask;
   try{
     const r=await fetch('/api/settings',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(collect())});
-    // Token tests only run when a credential changed (Credentials tab); only
-    // show "Testing tokens" there.
+      body:JSON.stringify(payload)});
     if(r.ok){
-      if(curTab===0){setMsg('Saved! Testing tokens…','green');pollCredFor(30000);}
+      // API Test is a per-save action, not a saved setting — uncheck the boxes.
+      for(const p in TEST_IDS){const cb=document.getElementById(TEST_IDS[p]);if(cb)cb.checked=false;}
+      if(curTab===0&&mask){setMsg('Saved! Testing tokens…','green');pollCredFor(30000);}
       else setMsg('Saved!','green');
       pollSleep();   // the save extended the window; refresh the countdown now
       if(document.getElementById('ft_on').checked)ftSendSave();  // apply Dark + All Font View
@@ -526,8 +542,12 @@ async function loadSt(){
 // Map each provider to its secret-field boxes; color them by test status.
 const PROV_FIELDS={claude:['cl_at','cl_rt'],codex:['cx_at','cx_rt'],copilot:['co_pat'],
   minimax:['mm_key'],kimi:['ki_tok'],zai:['za_key'],claudeplat:['cp_key']};
-const CRED_BG={ok:'#d6f5d6',fail:'#f8d2d2',none:'',testing:''};
-const HDR_BG={ok:'#8fdcb4',fail:'#f2aac0',none:'',testing:''};
+const PROV_ID={claude:1,codex:2,copilot:3,minimax:4,kimi:5,zai:6,claudeplat:7};
+const TEST_IDS={claude:'t_claude',codex:'t_codex',copilot:'t_copilot',minimax:'t_minimax',kimi:'t_kimi',zai:'t_zai',claudeplat:'t_claudeplat'};
+let testedProvs=[];   // keys checked at last Save -> only surface their errors
+// 'set' = configured but untested (white, but Clear Token still shows).
+const CRED_BG={ok:'#d6f5d6',fail:'#f8d2d2',none:'',set:'',testing:''};
+const HDR_BG={ok:'#8fdcb4',fail:'#f2aac0',none:'',set:'',testing:''};
 const SUMMARY={claude:'s_claude',claudeplat:'s_claudeplat',codex:'s_codex',
   copilot:'s_copilot',minimax:'s_minimax',kimi:'s_kimi',zai:'s_zai'};
 function applyCred(st){
@@ -535,9 +555,13 @@ function applyCred(st){
     const k=st[p]??'none';
     PROV_FIELDS[p].forEach(id=>{const el=document.getElementById(id);if(el)el.style.background=CRED_BG[k]??'';});
     const sm=document.getElementById(SUMMARY[p]);if(sm)sm.style.background=HDR_BG[k]??'';
-    // Clear Token only when a token exists (green/red); hidden when white.
-    const btn=document.getElementById('clr_'+p);if(btn)btn.style.display=(k==='ok'||k==='fail')?'inline-block':'none';
+    // Clear Token whenever a token is stored (ok/fail/set); hidden only when none.
+    const btn=document.getElementById('clr_'+p);if(btn)btn.style.display=(k==='ok'||k==='fail'||k==='set')?'inline-block':'none';
   }
+  // Surface API-test failures only for the providers checked at the last Save.
+  const lines=[];
+  testedProvs.forEach(p=>{if((st[p]??'none')==='fail')lines.push('API Test failed. Provider response: '+(st[p+'_err']||''));});
+  const box=document.getElementById('apierr');if(box)box.textContent=lines.join('\n');
 }
 async function pollCred(){try{applyCred(await fetch('/api/credstatus',{cache:'no-store'}).then(r=>r.json()));}catch(e){}}
 async function clearProv(ev,id){
@@ -677,6 +701,11 @@ static void sendNoCache(AsyncWebServerRequest* req, int code, const char* type,
   req->send(res);
 }
 
+// Heap buffer for the POST /api/settings body. Allocated with malloc so the
+// AsyncWebServerRequest destructor's free(_tempObject) on an aborted upload is
+// correct — a `new String` would mismatch free() and leak its internal buffer.
+struct UmReqBody { uint32_t len; uint32_t cap; char data[1]; };
+
 // CSRF gate for state-changing routes: the SPA tags every non-GET request with
 // X-UM-CSRF. A cross-origin page cannot set a custom header without a preflight
 // the device never answers, so a drive-by browser POST (and the text/plain body
@@ -725,13 +754,14 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
   // POST /api/settings → update + save
   server->on("/api/settings", HTTP_POST,
     [this](AsyncWebServerRequest* req) {
-      String* body = reinterpret_cast<String*>(req->_tempObject);
-      if (csrfReject(req)) { delete body; req->_tempObject = nullptr; return; }
+      UmReqBody* body = reinterpret_cast<UmReqBody*>(req->_tempObject);
+      if (csrfReject(req)) { free(body); req->_tempObject = nullptr; return; }
       if (!body) {  // oversize/aborted body was dropped by the upload handler
         sendNoCache(req, 413, "application/json", "{\"ok\":false,\"error\":\"too_large\"}");
         return;
       }
-      if (cfg_->fromJson(*body)) {
+      body->data[body->len] = '\0';
+      if (cfg_->fromJson(String(body->data))) {
         cfg_->save();
         sysLog("[web] save -> extend awake");
         if (onSaved_)    onSaved_();      // apply changes + repaint (async-safe flag)
@@ -740,27 +770,29 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
       } else {
         sendNoCache(req, 400, "application/json", "{\"ok\":false,\"error\":\"parse\"}");
       }
-      delete body; req->_tempObject = nullptr;
+      free(body); req->_tempObject = nullptr;
     },
     nullptr,
     [](AsyncWebServerRequest* req, uint8_t* data, size_t len,
        size_t index, size_t total) {
       static const size_t kMaxBody = 8192;   // settings JSON is well under this
       if (index == 0) {
-        if (req->_tempObject) { delete reinterpret_cast<String*>(req->_tempObject);
-                                req->_tempObject = nullptr; }
+        if (req->_tempObject) { free(req->_tempObject); req->_tempObject = nullptr; }
         if (total > kMaxBody) return;        // reject up front; body stays null
-        String* b = new String();
-        b->reserve(total > 0 ? total : 512);
+        const size_t cap = total > 0 ? total : 512;
+        UmReqBody* b = (UmReqBody*)malloc(offsetof(UmReqBody, data) + cap + 1);
+        if (!b) return;
+        b->len = 0; b->cap = (uint32_t)cap;
         req->_tempObject = b;
       }
-      String* b = reinterpret_cast<String*>(req->_tempObject);
-      if (!b) return;                        // already rejected
-      if (b->length() + len > kMaxBody) {    // chunked without Content-Length
-        delete b; req->_tempObject = nullptr;
+      UmReqBody* b = reinterpret_cast<UmReqBody*>(req->_tempObject);
+      if (!b) return;                        // already rejected / OOM
+      if (b->len + len > b->cap || b->len + len > kMaxBody) {  // overflow / chunked-no-length
+        free(b); req->_tempObject = nullptr;
         return;
       }
-      b->concat(reinterpret_cast<const char*>(data), len);
+      memcpy(b->data + b->len, data, len);
+      b->len += (uint32_t)len;
     }
   );
 

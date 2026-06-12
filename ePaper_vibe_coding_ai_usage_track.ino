@@ -19,5 +19,11 @@ using namespace usage_monitor;
 
 UsageApp app;
 
+// The provider fetch (begin()->refreshAll()) runs on the Arduino loop task. A
+// TLS handshake plus the 55KB Mozilla CA-bundle verification is very stack-heavy,
+// and the Claude 401->reactive-refresh path nests a second handshake — the default
+// 8KB loop stack overflows there (crash-reboot loop). Give it room.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+
 void setup() { app.begin(); }
 void loop()  { app.loop(); }

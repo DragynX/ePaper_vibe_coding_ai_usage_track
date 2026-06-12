@@ -84,7 +84,8 @@ class UsageUI {
 
   // One rate-limit window card: label + big remaining% + used% bar + reset.
   void drawWindowCard(int x, int y, int w, int h, const char* label,
-                      const WindowQuota& win, long nowEpoch, bool emphasize);
+                      const WindowQuota& win, long nowEpoch, bool emphasize,
+                      bool stale = false);
 
   // A horizontal progress bar filled to `pct` percent (the battery-fill idiom).
   void drawProgressBar(int x, int y, int w, int h, double pct, uint16_t fg,

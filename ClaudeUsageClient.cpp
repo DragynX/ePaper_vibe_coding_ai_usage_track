@@ -59,7 +59,7 @@ bool ClaudeUsageClient::fetch(long now, ProviderQuota& out) {
   // unrecognized user agents (429 with "UsageMonitor").
   AuthedResult ar = oauth_->get("https://api.anthropic.com/api/oauth/usage",
                                 extra, 3, nullptr, 0, now,
-                                "claude-cli/2.0.14 (external, cli)");
+                                "claude-cli/2.1.174 (external, cli)");
   out.refreshFailed = ar.refreshFailed;
   out.refreshed = ar.refreshed;   // rotated token must be persisted even on a failed usage call
   if (ar.needsRelogin) { out.needsRelogin = true; return false; }

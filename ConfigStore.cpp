@@ -205,13 +205,13 @@ bool ConfigStore::fromJson(const String& json) {
   pendingTestMask_ = 0;
   // Secret fields use keep-if-blank: a missing or empty value preserves the
   // stored secret (under Secure Tokens the UI never gets it back, so a plain
-  // save must not wipe it). When the value is non-empty AND different from what
-  // is stored, the provider is flagged for a token test.
-  auto setSecret = [&](const char* key, String& dst, uint8_t prov) {
+  // save must not wipe it). Token testing is no longer auto-triggered by a
+  // secret change — it is opt-in via the "API Test" checkbox (test_mask below).
+  auto setSecret = [&](const char* key, String& dst, uint8_t /*prov*/) {
     if (doc[key].isNull()) return;
     const String v = doc[key].as<String>();
     if (v.length() == 0) return;
-    if (v != dst) { dst = v; pendingTestMask_ |= (uint8_t)(1u << prov); }
+    if (v != dst) dst = v;
   };
   leftProv_  = doc["left_prov"]  | leftProv_;
   rightProv_ = doc["right_prov"] | rightProv_;
@@ -251,6 +251,11 @@ bool ConfigStore::fromJson(const String& json) {
   if (!doc["cp_mode"].isNull())     cp_mode_     = doc["cp_mode"].as<String>();
   if (!doc["cp_spendwin"].isNull()) cp_spendwin_ = doc["cp_spendwin"].as<String>();
   if (!doc["ls_url"].isNull()) ls_url_ = doc["ls_url"].as<String>();
+  // Opt-in token testing: the UI sends test_mask (bit n = provider n's "API Test"
+  // box was checked at Save). Secrets above are already stored, so isConfigured()
+  // reflects the new tokens when runPendingTokenTests() consumes this mask.
+  uint32_t tm = doc["test_mask"] | 0;
+  pendingTestMask_ = (uint8_t)(tm & 0xFE);   // bits 1..7 only (bit 0 unused)
   return true;
 }
 

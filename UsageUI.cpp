@@ -431,7 +431,8 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
 }
 
 void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
-                             const WindowQuota& win, long nowEpoch, bool emphasize) {
+                             const WindowQuota& win, long nowEpoch, bool emphasize,
+                             bool stale) {
   display_.fillRoundRect(x, y, w, h, kIsLarge ? 4 : 8, kCard);
   display_.drawRect(x, y, w, h, kLine);
   const int pad = kIsLarge ? 12 : 10;
@@ -452,9 +453,14 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
   snprintf(pctBuf, sizeof(pctBuf), "%d%%",
            static_cast<int>(win.usedPercent + 0.5));
   const int bigY = y + pad + 18;
-  renderer_.drawTextFace(pctBuf, x + pad, bigY,
-                         emphasize ? TextFace::SansBold48 : TextFace::SansBold36,
+  const TextFace bigFace = emphasize ? TextFace::SansBold48 : TextFace::SansBold36;
+  renderer_.drawTextFace(pctBuf, x + pad, bigY, bigFace,
                          TextAlign::TopLeft, kText, kCard);
+  if (stale) {   // rate-limited / stale: mark the preserved value to the right of the %
+    const int pw = renderer_.measureTextFace(pctBuf, bigFace);
+    renderer_.drawTextFace(uiStr(UiStringId::kStale), x + pad + pw + 6, bigY + 6,
+                           TextFace::Sans9, TextAlign::TopLeft, kCrit, kCard);
+  }
 
   // Used% bar near the bottom; it thickens as usage grows (every full 10%
   // used adds 8% of the base height), anchored at a fixed bottom edge.
@@ -536,6 +542,11 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
   // Header: always the full provider name (caller passes the short "ClaudePlat").
   renderer_.drawTextFace("Claude Platform", x, y,
                          TextFace::SansBold12, TextAlign::TopLeft, kText, kBg);
+  if (p.rateLimited) {   // 429: preserved $ shown below, retry at the clock time
+    const int hw = renderer_.measureTextFace("Claude Platform", TextFace::SansBold12);
+    renderer_.drawTextFace(String("RATE LIMIT - retry ") + fmtClock(p.retryEpoch),
+                           x + hw + 10, y + 4, TextFace::Sans9, TextAlign::TopLeft, kCrit, kBg);
+  }
 
   const bool spend = p.platSpendMode;
   const int  win   = p.platWindowDays;
@@ -778,11 +789,17 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
     renderer_.drawTextFace(hdr, x, y, TextFace::SansBold12, TextAlign::TopLeft, kText, kBg);
   }
 
-  int rightY = y + 4;
-  const bool stale = p.isStale(nowEpoch, 900);
-  if (kIsLarge) {
+  // Rate-limit notice under the provider name: the endpoint 429'd, we're showing
+  // preserved (stale) values and will retry at the shown clock time.
+  const bool stale = p.rateLimited || p.isStale(nowEpoch, 900);
+  if (p.rateLimited) {
+    const String note = String("RATE LIMIT HIT - retry ") + fmtClock(p.retryEpoch);
+    if (kIsLarge) renderer_.drawText(note, x, y + 44, 2, TextAlign::TopLeft, kCrit, kBg);
+    else          renderer_.drawTextFace(note, x, y + 20, TextFace::Sans9,
+                                         TextAlign::TopLeft, kCrit, kBg);
+  } else if (kIsLarge) {
     renderer_.drawText(stale ? uiStr(UiStringId::kStale) : "LIVE",
-                       x + w, rightY + 34, 2, TextAlign::TopRight,
+                       x + w, y + 38, 2, TextAlign::TopRight,
                        stale ? kCrit : kMuted, kBg);
   }
 
@@ -793,10 +810,10 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
   {
     const int cardH = (h - headerH - 20) / 2;
     drawWindowCard(x, cy, w, cardH, uiStr(UiStringId::kWinSession),
-                   p.session, nowEpoch, /*emphasize=*/true);
+                   p.session, nowEpoch, /*emphasize=*/true, stale);
     cy += cardH + 10;
     drawWindowCard(x, cy, w, cardH, uiStr(UiStringId::kWinWeekly),
-                   p.weekly, nowEpoch, /*emphasize=*/false);
+                   p.weekly, nowEpoch, /*emphasize=*/false, stale);
     if (!kIsLarge) return;
     cy += cardH + 10;
   }

@@ -75,8 +75,19 @@ bool ClaudePlatformUsageClient::fetch(long nowEpoch, ProviderQuota& out) {
     return false;
   }
   {
+    // Filter: keep only the fields read below so the parsed doc stays small next
+    // to the (transient) response body, instead of holding the whole 12-16 KB tree.
+    JsonDocument filter;
+    filter["data"][0]["model"] = true;
+    filter["data"][0]["input_tokens"] = true;
+    filter["data"][0]["output_tokens"] = true;
+    filter["data"][0]["cache_read_input_tokens"] = true;
+    filter["data"][0]["results"][0]["model"] = true;
+    filter["data"][0]["results"][0]["input_tokens"] = true;
+    filter["data"][0]["results"][0]["output_tokens"] = true;
+    filter["data"][0]["results"][0]["cache_read_input_tokens"] = true;
     JsonDocument doc;
-    if (deserializeJson(doc, ur.body)) {
+    if (deserializeJson(doc, ur.body, DeserializationOption::Filter(filter))) {
       sysLog("[claudeplat/usage] json parse error");
       return false;
     }
@@ -116,8 +127,11 @@ bool ClaudePlatformUsageClient::fetch(long nowEpoch, ProviderQuota& out) {
                    "&group_by[]=description&bucket_width=1d" + limitStr;   // all win days
   HttpResult cr = http_->get(costUrl, extra, 3, nullptr, 0, "UsageMonitor/1.4");
   if (cr.status == 200) {
+    JsonDocument filter;
+    filter["data"][0]["results"][0]["model"] = true;
+    filter["data"][0]["results"][0]["amount"] = true;
     JsonDocument doc;
-    if (!deserializeJson(doc, cr.body)) {
+    if (!deserializeJson(doc, cr.body, DeserializationOption::Filter(filter))) {
       double totalCents = 0;
       JsonArray data = doc["data"];
       if (!data.isNull()) {
