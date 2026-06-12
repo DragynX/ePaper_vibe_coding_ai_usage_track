@@ -137,8 +137,11 @@ void ConfigStore::battEstRecord(bool deep, int soc, float days) {
   float& last = deep ? battEst_.lastDeep : battEst_.lastAwake;
   float& slot = tbl[battBucketIndex(soc)];
   bool changed = false;
-  if (slot < 0.0f || fabsf(slot - days) >= 0.2f) { slot = days; changed = true; }
-  if (last < 0.0f || fabsf(last - days) >= 0.2f) { last = days; changed = true; }
+  // 1-day deadband: the estimate jitters by whole days early in a discharge, and
+  // the UI rounds to days/hours anyway — a tight band would rewrite the NVS blob
+  // almost every wake (flash wear + radio-on commit time) for no visible change.
+  if (slot < 0.0f || fabsf(slot - days) >= 1.0f) { slot = days; changed = true; }
+  if (last < 0.0f || fabsf(last - days) >= 1.0f) { last = days; changed = true; }
   if (changed) saveBattEst();                     // wear guard: only on real change
 }
 
@@ -236,7 +239,12 @@ bool ConfigStore::fromJson(const String& json) {
   mm_reg_ = doc["mm_reg"] | mm_reg_;
   setSecret("ki_tok", ki_tok_, UM_PROV_KIMI);
   setSecret("za_key", za_key_, UM_PROV_ZAI);
-  if (!doc["za_ep"].isNull())  za_ep_  = doc["za_ep"].as<String>();
+  if (!doc["za_ep"].isNull()) {
+    // The Zai bearer key is sent to this endpoint, so only accept https:// URLs —
+    // reject http/attacker hosts that would exfiltrate the key (keep the old value).
+    const String ep = doc["za_ep"].as<String>();
+    if (ep.startsWith("https://")) za_ep_ = ep;
+  }
   setSecret("cp_key", cp_key_, UM_PROV_CLAUDEPLAT);
   if (!doc["cp_org"].isNull()) cp_org_ = doc["cp_org"].as<String>();
   if (!doc["cp_prepaid"].isNull()) cp_prepaid_ = doc["cp_prepaid"].as<String>();

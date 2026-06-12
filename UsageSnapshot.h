@@ -47,6 +47,7 @@ struct ProviderQuota {
   bool ok = false;                    // last fetch succeeded
   bool needsRelogin = false;          // refresh token revoked -> user must re-login
   bool refreshFailed = false;         // a token refresh was attempted and failed
+  bool refreshed = false;             // token rotated this fetch -> persist even if the fetch then failed
   bool disabled = false;              // circuit breaker tripped (2 fails) -> stopped
   char failReason[48] = {0};          // human-readable stop reason for the UI notice
   long lastSuccessEpoch = 0;          // for staleness

@@ -4,6 +4,7 @@
 #include <WiFiClientSecure.h>
 
 #include "AppLog.h"
+#include "CaBundle.h"
 
 namespace usage_monitor {
 
@@ -33,11 +34,20 @@ static String extractJsonMessage(const String& body) {
   return out;
 }
 
-// Open either an https (TLS) or http connection. Mirrors VoiceMemo's beginHttp.
-// TODO(security): replace setInsecure() with pinned CA roots for the four hosts.
+// Open either an https (TLS) or http connection. HTTPS validates the server
+// certificate against the bundled Mozilla CA roots (CaBundle.h) — every provider
+// call carries a token, so an unvalidated link would let any on-path attacker
+// MITM and harvest credentials. Validation needs a real clock (cold boot waits
+// for SNTP, see UsageApp::waitForClock); if the clock is wrong the handshake
+// fails closed rather than leaking the token. Build with -DUM_TLS_INSECURE only
+// for diagnostics.
 static bool beginHttp(HTTPClient& http, WiFiClientSecure& secure, const String& url) {
   if (url.startsWith("https://")) {
+#ifdef UM_TLS_INSECURE
     secure.setInsecure();
+#else
+    secure.setCACertBundle(kCaBundle, kCaBundleLen);
+#endif
     return http.begin(secure, url);
   }
   return http.begin(url);

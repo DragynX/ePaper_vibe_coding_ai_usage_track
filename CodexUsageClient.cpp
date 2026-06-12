@@ -85,6 +85,7 @@ bool CodexUsageClient::fetch(long now, ProviderQuota& out) {
   AuthedResult ar = oauth_->get("https://chatgpt.com/backend-api/wham/usage",
                                 extra, en, hdrKeys, 3, now, "OpenUsage");
   out.refreshFailed = ar.refreshFailed;
+  out.refreshed = ar.refreshed;   // OpenAI invalidates a reused refresh token; persist on rotation
   if (ar.needsRelogin) { out.needsRelogin = true; return false; }
   if (ar.http.status != 200) {
     sysLog("[codex/usage] status %d", ar.http.status);

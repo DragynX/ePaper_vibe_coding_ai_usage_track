@@ -383,7 +383,17 @@ String AsyncWiFiManager::networkListAsString()
       String item = FPSTR(HTTP_ITEM);
       String rssiQ;
       rssiQ += quality;
-      item.replace("{v}", wifiSSIDs[i].SSID);
+      // HTML-escape the scanned SSID: it is attacker-controlled (any nearby radio
+      // broadcasts arbitrary names) and is injected into the onboarding page where
+      // the user types their home WiFi password — unescaped it is a script-injection
+      // / credential-theft vector.
+      String ssid = wifiSSIDs[i].SSID;
+      ssid.replace("&", "&amp;");
+      ssid.replace("<", "&lt;");
+      ssid.replace(">", "&gt;");
+      ssid.replace("\"", "&quot;");
+      ssid.replace("'", "&#39;");
+      item.replace("{v}", ssid);
       item.replace("{r}", rssiQ);
 #if defined(ESP8266)
       if (wifiSSIDs[i].encryptionType != ENC_TYPE_NONE)

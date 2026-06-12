@@ -286,6 +286,11 @@ R"rawhtml(
 </div></div>
 
 <script>
+// CSRF guard: tag every state-changing (non-GET) request with a custom header.
+// A cross-origin page cannot set this header without a preflight the device
+// rejects, so drive-by POSTs (and the text/plain body trick) are blocked.
+const _f=window.fetch;
+window.fetch=(u,o)=>{o=o||{};if((o.method||'GET').toUpperCase()!=='GET'){o.headers=Object.assign({},o.headers||{},{'X-UM-CSRF':'1'});}return _f(u,o);};
 const NPANE=5;
 const FT_SIZES=[6,7,8,10,12,14,16,18,24,30,34];
 let ftSizeIdx=0;
@@ -503,10 +508,11 @@ async function loadSt(){
         battStr+=' | <i>Est. '+Math.floor(ph/24)+' days '+(ph%24)+' hours on battery</i>';
       }
     }
+    const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const rows=[
-      ['IP Address',d.ip??'?'],
-      ['WiFi',(d.ssid??'?')+' | '+str(d.rssi)],
-      ['Battery',battStr],
+      ['IP Address',esc(d.ip??'?')],
+      ['WiFi',esc(d.ssid??'?')+' | '+str(d.rssi)],   // SSID is attacker-controllable
+      ['Battery',battStr],   // battStr has intentional <i> markup, composed from numbers
       ['Uptime',upStr],
       ['LEFT',PNAMES[d.left_prov??0]??'?'],
       ['RIGHT',PNAMES[d.right_prov??0]??'?'],
@@ -671,6 +677,17 @@ static void sendNoCache(AsyncWebServerRequest* req, int code, const char* type,
   req->send(res);
 }
 
+// CSRF gate for state-changing routes: the SPA tags every non-GET request with
+// X-UM-CSRF. A cross-origin page cannot set a custom header without a preflight
+// the device never answers, so a drive-by browser POST (and the text/plain body
+// trick that evades the application/json preflight) is rejected here. Returns
+// true (and sends 403) when the header is absent.
+static bool csrfReject(AsyncWebServerRequest* req) {
+  if (req->hasHeader("X-UM-CSRF")) return false;
+  req->send(403, "application/json", "{\"ok\":false,\"error\":\"csrf\"}");
+  return true;
+}
+
 void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battPct)(),
                            std::function<void()> onSaved,
                            std::function<String()> credJson,
@@ -709,6 +726,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
   server->on("/api/settings", HTTP_POST,
     [this](AsyncWebServerRequest* req) {
       String* body = reinterpret_cast<String*>(req->_tempObject);
+      if (csrfReject(req)) { delete body; req->_tempObject = nullptr; return; }
       if (!body) {  // oversize/aborted body was dropped by the upload handler
         sendNoCache(req, 413, "application/json", "{\"ok\":false,\"error\":\"too_large\"}");
         return;
@@ -753,6 +771,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
 
   // POST /api/keepalive → user chose Continue Session: keep awake 2 minutes
   server->on("/api/keepalive", HTTP_POST, [this](AsyncWebServerRequest* req) {
+    if (csrfReject(req)) return;
     sysLog("[web] keepalive (Continue Session)");
     if (onKeepAlive_) onKeepAlive_();
     sendNoCache(req, 200, "application/json", "{\"ok\":true}");
@@ -760,12 +779,14 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
 
   // POST /api/sleepnow → user chose Sleep: enter deep sleep now
   server->on("/api/sleepnow", HTTP_POST, [this](AsyncWebServerRequest* req) {
+    if (csrfReject(req)) return;
     if (onSleepNow_) onSleepNow_();
     sendNoCache(req, 200, "application/json", "{\"ok\":true}");
   });
 
   // POST /api/fonttest?on=&font=&dark=&size_idx= → runtime font-test (NOT saved)
   server->on("/api/fonttest", HTTP_POST, [this](AsyncWebServerRequest* req) {
+    if (csrfReject(req)) return;
     auto qp = [&](const char* k, int def) -> int {
       return req->hasParam(k) ? req->getParam(k)->value().toInt() : def;
     };
@@ -776,6 +797,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
 
   // POST /api/clearprovider?prov=N → wipe that provider's credentials
   server->on("/api/clearprovider", HTTP_POST, [this](AsyncWebServerRequest* req) {
+    if (csrfReject(req)) return;
     int prov = 0;
     if (req->hasParam("prov")) prov = req->getParam("prov")->value().toInt();
     if (prov < 1 || prov > 7) {
@@ -817,6 +839,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
 
   // POST /api/restart
   server->on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (csrfReject(req)) return;
     sendNoCache(req, 200, "application/json", "{\"ok\":true}");
     delay(200);
     ESP.restart();
@@ -824,6 +847,7 @@ void SettingsServer::begin(AsyncWebServer* server, ConfigStore* cfg, int (*battP
 
   // POST /api/wifi-reset → erase stored credentials + restart
   server->on("/api/wifi-reset", HTTP_POST, [](AsyncWebServerRequest* req) {
+    if (csrfReject(req)) return;
     sendNoCache(req, 200, "application/json", "{\"ok\":true}");
     delay(200);
     WiFi.disconnect(true, true);  // wifioff=true, eraseap=true

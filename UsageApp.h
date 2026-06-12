@@ -76,6 +76,7 @@ class UsageApp {
   int  sleepInSec();           // seconds until deep sleep, or -1 if disabled
   uint32_t bootId();           // RTC wake counter; changes every wake (session token)
   long uptimeSec();            // seconds since cold boot; spans deep-sleep wakes
+  void waitForClock(uint32_t timeoutMs);   // block for SNTP before first TLS fetch
   volatile bool redrawPending_     = false;  // set by settings save, handled in loop()
 
   // Font Testing playground — runtime only, never persisted (off after reboot).

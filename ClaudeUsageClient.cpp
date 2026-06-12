@@ -61,6 +61,7 @@ bool ClaudeUsageClient::fetch(long now, ProviderQuota& out) {
                                 extra, 3, nullptr, 0, now,
                                 "claude-cli/2.0.14 (external, cli)");
   out.refreshFailed = ar.refreshFailed;
+  out.refreshed = ar.refreshed;   // rotated token must be persisted even on a failed usage call
   if (ar.needsRelogin) { out.needsRelogin = true; return false; }
   if (ar.http.status != 200) {
     sysLog("[claude/usage] status %d", ar.http.status);

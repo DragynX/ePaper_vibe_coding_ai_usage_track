@@ -369,12 +369,17 @@ void UsageApp::begin() {
   pinMode(4, INPUT);
   pinMode(5, INPUT);
 
-  // Wake cause drives the awake-window length: cold power-on gets a long window
-  // for first setup; timer/button wakes get a short 30 s window.
+  // Wake cause drives the awake-window length (radio-on time = the dominant
+  // battery cost): cold power-on gets 5 min for first setup; the green button
+  // (the "I want the settings page" signal) 2 min; a plain timer wake only ~3 s —
+  // just long enough for an actively-polling browser to fire keepalive and
+  // re-extend. Nobody is looking at an unattended timer wake.
   const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   const bool firstBoot = (cause != ESP_SLEEP_WAKEUP_TIMER &&
                           cause != ESP_SLEEP_WAKEUP_EXT1);
-  awakeWindowMs_ = firstBoot ? 5UL * 60UL * 1000UL : 30UL * 1000UL;
+  awakeWindowMs_ = firstBoot                          ? 5UL * 60UL * 1000UL
+                 : (cause == ESP_SLEEP_WAKEUP_EXT1)   ? 2UL * 60UL * 1000UL
+                                                      : 3UL * 1000UL;
   if (firstBoot) g_coldBootEpoch = 0;   // re-anchor uptime on a real cold boot
   ++g_wakeCount;
   sysLog("[boot] wake cause=%d firstBoot=%d count=%u window=%lums",
@@ -388,7 +393,7 @@ void UsageApp::begin() {
   g_battFullMv = cfgStore_.battFullMv();
   sysLog("[sleep] boot_id=%u deep_sleep=%d", (unsigned)g_wakeCount,
          cfgStore_.deepSleepEnabled() ? 1 : 0);
-  http_.configure(45000);
+  http_.configure(15000);   // providers answer in 1-3s; 45s only lengthened bad wakes
   configureProviders();
   localStats_.configure(&http_, cfgStore_.localStatsUrl().c_str());
 
@@ -399,11 +404,10 @@ void UsageApp::begin() {
   ui_.setSharpness(cfgStore_.uiSharp());
   ui_.setTextWeight(cfgStore_.uiWeight());
   ui_.setSmallTextCrisp(cfgStore_.uiSmallCrisp());
-  // Cold boot: full splash. Wake: draw nothing — GRAY4 only refreshes cleanly
-  // with a full update, so leave the persisted dashboard on screen during
-  // WiFi+fetch and do one clean full refresh when the new data is ready.
-  if (firstBoot) ui_.drawBoot(uiStr(UiStringId::kBootWifi), currentStatus(), now());
-
+  // No "Connecting…" splash on cold boot: e-paper is bistable, so the previous
+  // dashboard stays on screen (blank only on the very first boot) while WiFi +
+  // fetch run, then ONE clean full refresh shows the new data — cold boot now
+  // costs a single GRAY4 flash. The portal screen below still draws on failure.
   if (!ensureWiFi(15000)) {
     sysLog("[wifi] STA failed — launching portal");
     WiFi.disconnect(false);
@@ -455,8 +459,10 @@ void UsageApp::begin() {
          WiFi.localIP().toString().c_str());
 
   syncTime();   // non-blocking: starts background SNTP, no splash screen
-  // No second "Fetching…" splash: the dashboard lands seconds after the WiFi
-  // splash, and each splash costs a full GRAY4 flash sequence.
+  // TLS cert validation needs a real clock. Warm wakes keep RTC time across deep
+  // sleep; a cold boot starts at 1970, so wait briefly for the first SNTP packet
+  // before the first HTTPS fetch (else every cert reads as not-yet-valid).
+  if (firstBoot) waitForClock(8000);
   refreshAll();
   lastRefreshMs_ = millis();
   awakeStartMs_  = millis();   // awake window starts after fetch + display
@@ -483,8 +489,10 @@ void UsageApp::loop() {
         ui_.drawFontTest(ftFont_, kTestSizes[ftSizeIdx_], ftDark_,
                          WiFi.localIP().toString());
       }
-    } else {
-      // Restore the normal renderer state + redraw the dashboard from the last snapshot.
+    } else if (!redrawPending_) {
+      // Restore the normal renderer state + redraw from the last snapshot. Skip
+      // when a settings Save is pending — its branch below does the single repaint,
+      // avoiding a back-to-back double flash on playground-exit-with-save.
       ui_.setDarkMode(cfgStore_.darkMode());
       ui_.setFont(cfgStore_.uiFont());
       ui_.setSmoothing(cfgStore_.uiAa());
@@ -691,6 +699,20 @@ void UsageApp::syncTime() {
 
 long UsageApp::now() { return static_cast<long>(time(nullptr)); }
 
+// Block up to timeoutMs for SNTP to deliver a real clock (epoch past the sanity
+// floor). Needed before the first HTTPS fetch on a cold boot so TLS cert dates
+// validate; warm wakes already have valid RTC time and return immediately.
+void UsageApp::waitForClock(uint32_t timeoutMs) {
+  const uint32_t start = millis();
+  while (static_cast<long>(time(nullptr)) < kSanityFloorEpoch &&
+         millis() - start < timeoutMs) {
+    delay(100);
+  }
+  timeSynced_ = (static_cast<long>(time(nullptr)) >= kSanityFloorEpoch);
+  sysLog("[ntp] clock %s after %ums", timeSynced_ ? "valid" : "INVALID",
+         (unsigned)(millis() - start));
+}
+
 // Seconds since the last cold (power-on) boot, spanning deep-sleep wakes. Anchors
 // the cold-boot epoch on the first call with a valid clock; 0 until then.
 long UsageApp::uptimeSec() {
@@ -814,6 +836,14 @@ void UsageApp::fetchLeft(long n) {
     }
     sysLog("[api] %s FAILED (%u/2) reason=%s",
            providerName(cfgStore_.leftProvider()), leftFailCount_, leftFailReason_);
+    if (leftAuthPtr_ && snapshot_.left.refreshed) {
+      // Refresh succeeded but the usage call failed: the rotated token lives only
+      // in RAM and dies on deep sleep. Persist it now or the next wake replays the
+      // stale token and the provider forces a re-login (OpenAI invalidates reuse).
+      store_.save(providerKey(cfgStore_.leftProvider()), *leftAuthPtr_,
+                  seedFor(cfgStore_.leftProvider(), cfgStore_));
+      sysLog("[fetch] left failed but token rotated -> saved");
+    }
   }
   setProviderNames();
 }
@@ -867,6 +897,11 @@ void UsageApp::fetchRight(long n) {
     }
     sysLog("[api] %s FAILED (%u/2) reason=%s",
            providerName(cfgStore_.rightProvider()), rightFailCount_, rightFailReason_);
+    if (rightAuthPtr_ && snapshot_.right.refreshed) {
+      store_.save(providerKey(cfgStore_.rightProvider()), *rightAuthPtr_,
+                  seedFor(cfgStore_.rightProvider(), cfgStore_));
+      sysLog("[fetch] right failed but token rotated -> saved");
+    }
   }
   setProviderNames();
 }
@@ -942,7 +977,17 @@ static uint32_t drawFingerprint(const UsageSnapshot& s, const UiStatus& st, long
   fpProvider(h, s.right, n);
   fnvI(h, st.wifiConnected ? 1 : 0);
   fnvS(h, st.ipAddress.c_str());
-  fnvI(h, st.batteryPercent / 5);          // icon-fill granularity; ADC-jitter immune
+  // Battery bucket with a 2% deadband: ADC jitter at a 5%-bucket edge would
+  // otherwise flip the hash every wake and force a needless GRAY4 flash.
+  static RTC_DATA_ATTR int s_battBucket = -1;
+  if (st.batteryPercent < 0) {
+    fnvI(h, -1);
+  } else {
+    if (s_battBucket < 0) s_battBucket = st.batteryPercent / 5;
+    else if (st.batteryPercent >= (s_battBucket + 1) * 5 + 2) s_battBucket = st.batteryPercent / 5;
+    else if (st.batteryPercent <= s_battBucket * 5 - 2)       s_battBucket = st.batteryPercent / 5;
+    fnvI(h, s_battBucket);
+  }
   fnvI(h, st.batteryDays >= 0.0f ? (long)(st.batteryDays * 24.0f + 0.5f) : -1);
   fnvI(h, (st.batteryCharging ? 1 : 0) | (st.batteryEstPlaceholder ? 2 : 0) |
           (st.deepSleepOn ? 4 : 0));
