@@ -66,9 +66,19 @@ struct FetchSlot {
   long          retryEpoch;   // 429 backoff deadline (0 = none)
   uint8_t       valid;        // 1 = q holds real last-good data
   ProviderQuota q;
+  uint8_t       retryCount;   // consecutive-429 count (drives exponential backoff).
+                              // Kept LAST so existing FetchSlot{...} inits value-init
+                              // it to 0 -> every success/test path resets the schedule.
 };
 static FetchSlot g_left{}, g_right{};
-static const long kRateLimitBackoffSec   = 35 * 60;  // 35 min, per Anthropic's sticky 429
+static const long kRateLimitBackoffSec   = 35 * 60;  // 35 min cap, per Anthropic's sticky 429
+
+// Seconds to back off after the Nth consecutive 429 (1-based). A server Retry-After
+// (>=0) always wins; otherwise exponential 60/120/240/480 capped at 35 min (5+).
+static long backoff429Secs(uint8_t count, long retryAfter) {
+  if (retryAfter >= 0) return retryAfter;
+  return (count >= 1 && count <= 4) ? (60L << (count - 1)) : kRateLimitBackoffSec;
+}
 static const long kMinFetchIntervalSec   = 300;      // fixed 5-min per-provider rate gate
 
 // Mirror log output to both USB CDC (Serial, visible on the COM port) and the
@@ -330,6 +340,25 @@ static void buildFailReason(char* buf, size_t n, const ProviderQuota& p,
 // Validate one provider's stored credentials by making its real usage call into
 // a scratch wiring. Persists any rotated token on success. Returns kCredOk/Fail.
 uint8_t UsageApp::testProvider(uint8_t prov) {
+  // Respect the 429 backoff even on a manual Credentials-tab test: poking a
+  // rate-limited endpoint just re-arms the 429. The backoff lives in the matching
+  // displayed side's slot; report the remaining time instead of fetching.
+  {
+    const long tnow = now();
+    const FetchSlot* slot = (prov == cfgStore_.leftProvider())  ? &g_left
+                          : (prov == cfgStore_.rightProvider()) ? &g_right : nullptr;
+    if (slot && slot->prov == prov && slot->retryEpoch > 0 &&
+        tnow > kSanityFloorEpoch && tnow < slot->retryEpoch) {
+      const long mins = (slot->retryEpoch - tnow + 59) / 60;
+      char rb[64];
+      snprintf(rb, sizeof(rb), "Rate limited (429) - retry in %ldm", mins);
+      credError_[prov]  = rb;
+      credStatus_[prov] = kCredFail;
+      sysLog("[test] %s rate-limited, %lds left -> skip", providerName(prov),
+             slot->retryEpoch - tnow);
+      return kCredFail;
+    }
+  }
   OAuthClient scratch;
   UsageClientBase* client = nullptr;
   AuthState* authPtr = nullptr;
@@ -1028,12 +1057,17 @@ void UsageApp::fetchLeft(long n) {
     snapshot_.left = lHave ? g_left.q : q;
     snapshot_.left.rateLimited = true;
     g_left.prov = lprov;
-    if (n > kSanityFloorEpoch) { g_left.retryEpoch = n + kRateLimitBackoffSec; g_left.lastFetch = n; }
+    if (n > kSanityFloorEpoch) {
+      if (g_left.retryCount < 255) g_left.retryCount++;
+      const long boff = backoff429Secs(g_left.retryCount, http_.lastRetryAfter());
+      g_left.retryEpoch = n + boff;
+      g_left.lastFetch  = n;
+      sysLog("[api] %s 429 #%u -> backoff %lds (retryAfter=%ld)",
+             providerName(lprov), g_left.retryCount, boff, http_.lastRetryAfter());
+    }
     snapshot_.left.retryEpoch = g_left.retryEpoch;
     saveFetchSlot(true);
     credStatus_[lprov] = kCredFail;
-    sysLog("[api] %s 429 rate-limited -> backoff until %ld (last-good preserved)",
-           providerName(lprov), g_left.retryEpoch);
   } else {
     snapshot_.left = q;
     if (n > kSanityFloorEpoch) {   // count the attempt for the gate (in-RAM only)
@@ -1124,12 +1158,17 @@ void UsageApp::fetchRight(long n) {
     snapshot_.right = rHave ? g_right.q : q;
     snapshot_.right.rateLimited = true;
     g_right.prov = rprov;
-    if (n > kSanityFloorEpoch) { g_right.retryEpoch = n + kRateLimitBackoffSec; g_right.lastFetch = n; }
+    if (n > kSanityFloorEpoch) {
+      if (g_right.retryCount < 255) g_right.retryCount++;
+      const long boff = backoff429Secs(g_right.retryCount, http_.lastRetryAfter());
+      g_right.retryEpoch = n + boff;
+      g_right.lastFetch  = n;
+      sysLog("[api] %s 429 #%u -> backoff %lds (retryAfter=%ld)",
+             providerName(rprov), g_right.retryCount, boff, http_.lastRetryAfter());
+    }
     snapshot_.right.retryEpoch = g_right.retryEpoch;
     saveFetchSlot(false);
     credStatus_[rprov] = kCredFail;
-    sysLog("[api] %s 429 rate-limited -> backoff until %ld (last-good preserved)",
-           providerName(rprov), g_right.retryEpoch);
   } else {
     snapshot_.right = q;
     if (n > kSanityFloorEpoch) { g_right.prov = rprov; g_right.lastFetch = n; }   // no NVS write on a plain fail

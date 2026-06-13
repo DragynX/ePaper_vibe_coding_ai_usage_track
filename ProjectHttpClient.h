@@ -44,6 +44,9 @@ class HttpClient {
   // error "message" from the body (empty when none).
   int           lastStatus() const { return lastStatus_; }
   const String& lastError()  const { return lastError_; }
+  // Parsed Retry-After of the most recent send() in seconds, or -1 if absent.
+  // Drives the 429 backoff (server value overrides the exponential schedule).
+  long          lastRetryAfter() const { return lastRetryAfter_; }
 
  private:
   HttpResult send(bool isPost, const String& url, const HttpHeader* req, size_t reqN,
@@ -54,6 +57,7 @@ class HttpClient {
   uint32_t timeoutMs_ = 45000;
   int      lastStatus_ = 0;
   String   lastError_;
+  long     lastRetryAfter_ = -1;
 };
 
 }  // namespace usage_monitor

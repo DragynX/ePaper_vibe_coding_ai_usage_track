@@ -92,8 +92,9 @@ HttpResult HttpClient::send(bool isPost, const String& url, const HttpHeader* re
   http.end();
 
   // Remember the outcome so the caller can surface a failure reason.
-  lastStatus_ = code;
-  lastError_  = (code > 0 && code != 200) ? extractJsonMessage(r.body) : String();
+  lastStatus_     = code;
+  lastError_      = (code > 0 && code != 200) ? extractJsonMessage(r.body) : String();
+  lastRetryAfter_ = (code > 0) ? r.retryAfterSeconds : -1;   // -1 = header absent
 
   // Log method, URL (truncated — no tokens in these URLs), status, and size.
   sysLog("[http] %s %.60s -> %d (%u bytes)",
