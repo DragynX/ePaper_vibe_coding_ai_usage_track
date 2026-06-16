@@ -82,7 +82,8 @@ R"rawhtml(
   <details><summary id="s_claude">Claude OAuth<button id="clr_claude" class="clrbtn" onclick="clearProv(event,1)">Clear Token</button><label class="apitest" onclick="event.stopPropagation()"><input type="checkbox" id="t_claude" onclick="event.stopPropagation()">API Test</label></summary><div class="inner">
     <label>Access Token<textarea class="secret" id="cl_at" rows="2" spellcheck="false"></textarea></label>
     <label>Refresh Token<textarea class="secret" id="cl_rt" rows="2" spellcheck="false"></textarea></label>
-    <label>Expires At<input type="datetime-local" id="cl_exp"></label>
+    <label>Expires At (epoch)<input type="text" id="cl_exp" inputmode="numeric" spellcheck="false" oninput="updExp()" placeholder="from .credentials.json expiresAt, e.g. 1781422972619"></label>
+    <div id="cl_exp_h" class="note" style="margin-top:2px"></div>
     <label>Subscription<select id="cl_sub">
       <option value="free">Free</option>
       <option value="pro">Pro</option>
@@ -376,6 +377,23 @@ function msToLocal(ms){const n=parseInt(ms);if(!n)return'';
 function localToMs(v){return v?String(new Date(v).getTime()):'0';}
 function isoToLocal(s){const t=Date.parse(s);return isNaN(t)?'':msToLocal(t);}
 function localToIso(v){return v?new Date(v).toISOString():'0';}
+// Claude Expires At: paste raw epoch (ms 13-digit or seconds 10-digit, auto-detected
+// like the firmware's >1e11 test); show local date/time + relative below the field.
+function updExp(){
+  const el=document.getElementById('cl_exp'), out=document.getElementById('cl_exp_h');
+  if(!el||!out) return;
+  const raw=(el.value||'').replace(/[^0-9]/g,''); const n=parseInt(raw,10);
+  if(!n){ out.textContent=''; return; }
+  const ms = n>=1e11 ? n : n*1000;
+  const d=new Date(ms);
+  const when=d.toLocaleString(undefined,{weekday:'short',year:'numeric',month:'short',
+    day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const diff=ms-Date.now();
+  if(diff<=0){ out.innerHTML=when+' — <span style="color:#c33">EXPIRED</span>'; return; }
+  const m=Math.floor(diff/60000), h=Math.floor(m/60), dd=Math.floor(h/24);
+  const rel = dd>0 ? `in ${dd}d ${h%24}h` : h>0 ? `in ${h}h ${m%60}m` : `in ${m}m`;
+  out.textContent=`${when} — ${rel}`;
+}
 const SECRET_IDS=['cl_at','cl_rt','cx_at','cx_rt','co_pat','mm_key','ki_tok','za_key','cp_key'];
 function populate(c){
   STR_IDS.forEach(id=>{
@@ -393,7 +411,7 @@ function populate(c){
     const v=String(c.cl_sub??'pro').toLowerCase();
     sub.value=['free','pro','max'].includes(v)?v:'pro';
   }
-  const ce=document.getElementById('cl_exp');if(ce)ce.value=msToLocal(c.cl_exp);
+  const ce=document.getElementById('cl_exp');if(ce){ce.value=(c.cl_exp&&c.cl_exp!=='0')?c.cl_exp:'';updExp();}
   const cx=document.getElementById('cx_lr');if(cx)cx.value=isoToLocal(c.cx_lr??'');
   const mm=document.getElementById('mm_reg');if(mm)mm.value=String(c.mm_reg??0);
   const rs=document.getElementById('ref_sec');if(rs){rs.value=c.ref_sec??300;updRef(rs.value);}
@@ -422,7 +440,7 @@ function populate(c){
 function collect(){
   const d={};
   STR_IDS.forEach(id=>{d[id]=document.getElementById(id)?.value??'';});
-  d.cl_exp=localToMs(document.getElementById('cl_exp')?.value);
+  d.cl_exp=((document.getElementById('cl_exp')?.value)||'').replace(/[^0-9]/g,'')||'0';
   d.cx_lr=localToIso(document.getElementById('cx_lr')?.value);
   d.mm_reg=parseInt(document.getElementById('mm_reg')?.value??'0');
   d.ref_sec=parseInt(document.getElementById('ref_sec').value);
