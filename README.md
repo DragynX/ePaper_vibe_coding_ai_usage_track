@@ -159,6 +159,22 @@ arduino-cli upload -p COM12 --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi .
 > deep sleep, press the green wake button first, or hold **BOOT** and tap
 > **RESET** to enter download mode.
 
+#### Or flash the prebuilt image (no build)
+
+A full merged flash image is committed under
+[`bin/`](bin/) — e.g. `bin/E1001-AIUsageMonitor.v.1.15.9.bin` (bootloader +
+partitions + app). Write it to offset `0x0` with esptool:
+
+```sh
+esptool.py --chip esp32s3 -p COM12 write_flash 0x0 bin/E1001-AIUsageMonitor.v.1.15.9.bin
+```
+
+> ⚠️ The merged image flashes at **`0x0`** and **full-erases the chip, including
+> NVS** — WiFi credentials, saved tokens, and all settings are wiped. Use it for a
+> clean restore; you'll re-onboard over WiFi afterward. (An app-only image that
+> flashes at `0x10000` and preserves NVS is produced by `build.ps1` but not
+> shipped here.)
+
 ### 2. Join the device's WiFi AP
 
 On first boot the screen shows **"Connect to 'UsageMonitor' AP"**. From a phone or
