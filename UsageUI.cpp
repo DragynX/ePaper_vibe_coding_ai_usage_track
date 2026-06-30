@@ -96,6 +96,19 @@ String fmtClock(long epoch) {
   return String(buf);
 }
 
+// Abbreviated month + day (e.g. "Jun 30"); empty if clock not yet synced.
+String fmtMonDay(long epoch) {
+  if (epoch <= 0) return "";
+  static const char* kMon[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+  time_t t = static_cast<time_t>(epoch);
+  struct tm lt;
+  localtime_r(&t, &lt);
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%s %d", kMon[lt.tm_mon], lt.tm_mday);
+  return String(buf);
+}
+
 }  // namespace
 
 void UsageUI::begin() {
@@ -303,7 +316,9 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
   // Left: app title + version (version drawn ~2x smaller than the app name).
   const String appName = uiStr(UiStringId::kAppName);
   if (kIsLarge) {
-    const String title = appName + " " + UM_VERSION;
+    String title = appName + " " + UM_VERSION;
+    const String dateSuffix = fmtMonDay(nowEpoch);
+    if (dateSuffix.length()) title += " " + dateSuffix;
     renderer_.drawTextFace(title, margin, headerMiddleY,
                            TextFace::SansBold24, TextAlign::MiddleLeft, kText, kBg);
   } else {
@@ -317,7 +332,10 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
                            (pillH - 2) / 2, kText);   // 2px stroke
     renderer_.drawTextFace(appName, margin, topY,
                            TextFace::SansBold9, TextAlign::TopLeft, kText, kBg);
-    renderer_.drawTextFace(String("v") + UM_VERSION, pillX + pillW + 8, topY + nameH,
+    String ver = String("v") + UM_VERSION;
+    const String dateSuffix = fmtMonDay(nowEpoch);
+    if (dateSuffix.length()) ver += " " + dateSuffix;
+    renderer_.drawTextFace(ver, pillX + pillW + 8, topY + nameH,
                            TextFace::Sans7, TextAlign::BottomLeft, kText, kBg);
   }
 
