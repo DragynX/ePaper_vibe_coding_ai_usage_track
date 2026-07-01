@@ -162,11 +162,11 @@ arduino-cli upload -p COM12 --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi .
 #### Or flash the prebuilt image (no build)
 
 A full merged flash image is committed under
-[`bin/`](bin/) — e.g. `bin/E1001-AIUsageMonitor.v.1.15.9.bin` (bootloader +
+[`bin/`](bin/) — e.g. `bin/E1001-AIUsageMonitor.v.1.15.10.bin` (bootloader +
 partitions + app). Write it to offset `0x0` with esptool:
 
 ```sh
-esptool.py --chip esp32s3 -p COM12 write_flash 0x0 bin/E1001-AIUsageMonitor.v.1.15.9.bin
+esptool.py --chip esp32s3 -p COM12 write_flash 0x0 bin/E1001-AIUsageMonitor.v.1.15.10.bin
 ```
 
 > ⚠️ The merged image flashes at **`0x0`** and **full-erases the chip, including
@@ -293,6 +293,14 @@ pio test -e native
 
 Condensed; see `git log` for detail.
 
+- **v1.15.10** — header shows the current date after the version; e-paper
+  flicker/bounce hardening: fixed-width Fetch clock + `$`/STALE slots so the
+  header no longer re-centers each fetch, draw-fingerprint de-dup to drop
+  redundant full refreshes, frozen platform bottom block + constant-height
+  usage bar.
+- **v1.15.x** — security/stability hardening: Mozilla TLS CA-bundle + CSRF/XSS
+  guards, bearer-token rotation, 16 KB loop-task stack boot-loop fix, Claude
+  token-expiry readout.
 - **v1.14.x** — battery runtime estimate on battery in awake + deep sleep, mV-trend
   charge detection, learned italic placeholder estimates; header/card display
   tweaks.

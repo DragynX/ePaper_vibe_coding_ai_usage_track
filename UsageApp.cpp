@@ -46,6 +46,8 @@ RTC_DATA_ATTR static long     g_lastDrawEpoch = 0;
 // Repaint at least this often so the (excluded) fetch times / reset countdowns
 // on screen never go more than an hour stale.
 static const long kMaxNoRepaintSec = 3600;
+// Forward decl: loop()'s direct-draw paths record this fingerprint (defined below).
+static uint32_t drawFingerprint(const UsageSnapshot& s, const UiStatus& st, long n);
 
 // WiFi fast-connect cache (RTC, survives deep sleep): the AP BSSID + channel from
 // the last good connect let a wake skip the all-channel scan and associate
@@ -624,8 +626,14 @@ void UsageApp::loop() {
       ui_.setSharpness(cfgStore_.uiSharp());
       ui_.setTextWeight(cfgStore_.uiWeight());
       ui_.setSmallTextCrisp(cfgStore_.uiSmallCrisp());
-      ui_.drawDashboard(snapshot_, currentStatus(), now());
-      g_lastDrawHash = 0;       // direct draw -> invalidate the skip fingerprint
+      const long drawnNow = now();
+      const UiStatus drawnSt = currentStatus();
+      ui_.drawDashboard(snapshot_, drawnSt, drawnNow);
+      // Record the just-painted fingerprint so an identical next periodic cycle
+      // skips its own GRAY4 flash. Zeroing here forced a guaranteed redundant
+      // full refresh on the following tick even when nothing had changed.
+      g_lastDrawHash  = drawFingerprint(snapshot_, drawnSt, drawnNow);
+      g_lastDrawEpoch = drawnNow;
     }
     lastRefreshMs_ = millis();   // don't immediately refetch on the next tick
     extendAwake("font-test");
@@ -656,8 +664,14 @@ void UsageApp::loop() {
       configureProviders();     // always re-wire: left/right or tokens may have changed
       refreshAll(true);         // settings may change pixels without changing data
     } else {
-      ui_.drawDashboard(snapshot_, currentStatus(), now());
-      g_lastDrawHash = 0;       // direct draw -> invalidate the skip fingerprint
+      const long drawnNow = now();
+      const UiStatus drawnSt = currentStatus();
+      ui_.drawDashboard(snapshot_, drawnSt, drawnNow);
+      // Record the just-painted fingerprint so an identical next periodic cycle
+      // skips its own GRAY4 flash. Zeroing here forced a guaranteed redundant
+      // full refresh on the following tick even when nothing had changed.
+      g_lastDrawHash  = drawFingerprint(snapshot_, drawnSt, drawnNow);
+      g_lastDrawEpoch = drawnNow;
     }
     g_battFullMv = cfgStore_.battFullMv();   // pick up a changed battery setting
     sysLog("[sleep] settings applied: deep_sleep=%d window=%lus",

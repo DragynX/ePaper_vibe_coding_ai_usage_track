@@ -362,9 +362,14 @@ void UsageUI::drawHeader(const UiStatus& st, long nowEpoch) {
                  s3 = "Next-> ", s4 = nextBuf;
     const int w0 = renderer_.measureTextFace(s0, big);
     const int w1 = renderer_.measureTextFace(s1, small);
-    const int w2 = renderer_.measureTextFace(s2, big);
+    // Fixed-width time slots: measure a constant "00:00" template instead of the
+    // live clock strings, so the whole centered Fetch group stays pixel-locked
+    // when the digits change. Lexend digits are proportional, so live-measured
+    // widths re-centered the row every fetch -> the visible horizontal bounce.
+    // The real strings are still drawn left-aligned inside these slots below.
+    const int w2 = renderer_.measureTextFace("00:00 ", big);
     const int w3 = renderer_.measureTextFace(s3, small);
-    const int w4 = renderer_.measureTextFace(s4, big);
+    const int w4 = renderer_.measureTextFace("00:00", big);
     const int gap = 12;   // breathing room before "Next->" so the times don't touch
     const int fgap = 4;   // extra space after "Fetch:" so it isn't glued to Last->
     int sx = w / 2 - (w0 + fgap + w1 + w2 + w3 + w4 + gap) / 2;
@@ -475,16 +480,16 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
   renderer_.drawTextFace(pctBuf, x + pad, bigY, bigFace,
                          TextAlign::TopLeft, kText, kCard);
   if (stale) {   // rate-limited / stale: mark the preserved value to the right of the %
-    const int pw = renderer_.measureTextFace(pctBuf, bigFace);
+    const int pw = renderer_.measureTextFace("000%", bigFace);   // fixed slot: STALE tag holds x across digit-count changes
     renderer_.drawTextFace(uiStr(UiStringId::kStale), x + pad + pw + 6, bigY + 6,
                            TextFace::Sans9, TextAlign::TopLeft, kCrit, kCard);
   }
 
-  // Used% bar near the bottom; it thickens as usage grows (every full 10%
-  // used adds 8% of the base height), anchored at a fixed bottom edge.
+  // Used% bar near the bottom: FIXED height + fixed bottom edge, so the top edge
+  // never steps up as usage crosses 10% boundaries (was: thickened with usage).
+  // The horizontal fill in drawProgressBar still encodes the percentage.
   const int baseH = kIsLarge ? 8 : 10;
-  const int steps = static_cast<int>(win.usedPercent / 10.0);   // 0..10
-  const int barH  = baseH + (baseH * 8 * steps) / 100;
+  const int barH  = baseH;
   const int slotBottom = y + h - pad - (kIsLarge ? 20 : 18);
   const int barY = slotBottom - barH;
   drawProgressBar(x + pad, barY, w - pad * 2, barH, win.usedPercent,
@@ -588,7 +593,10 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
   renderer_.drawTextFace(buf, x, cy, TextFace::SansBold36, TextAlign::TopLeft,
                          dim ? kMuted : kText, kBg);
   if (label) {
-    const int numW = renderer_.measureTextFace(buf, TextFace::SansBold36);
+    // Fixed slot from a template so the unit label doesn't slide when the $ digit
+    // count changes between fetches (the number stays left-anchored at x). Assumes
+    // values below $10000; widen the template if a provider can exceed that.
+    const int numW = renderer_.measureTextFace("$0000.00", TextFace::SansBold36);
     renderer_.drawTextFace(label, x + numW + 10, cy + 50, TextFace::SansBold12,
                            TextAlign::BottomLeft, kMuted, kBg);   // just above the line
   }
@@ -638,6 +646,14 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
     cy += rowH;
   }
 
+  // Token-usage line + the four report lines are anchored to FIXED offsets from
+  // the column bottom (not the accumulating cy cursor), so they hold their y when
+  // the model count or the prepaid line above them changes. Reports occupy the
+  // bottom 4*18 px; the token line sits 20 px above them. Models fill the space
+  // above and are kept clear of this band by the reserveBottom (=100) loop guard.
+  const int reportsY = y + h - 4 * 18;
+  const int tokenY   = reportsY - 20;
+
   // Token usage for the active window.
   const double tk = p.balance;
   char tkBuf[20];
@@ -646,8 +662,7 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
   else if (tk >= 1e3) snprintf(tkBuf, sizeof(tkBuf), "%.1fK", tk / 1e3);
   else snprintf(tkBuf, sizeof(tkBuf), "%.0f", tk);
   snprintf(buf, sizeof(buf), "%d day token usage: %s", win, tkBuf);
-  renderer_.drawTextFace(buf, x, cy, TextFace::SansBold12, TextAlign::TopLeft, kText, kBg);
-  cy += 20;
+  renderer_.drawTextFace(buf, x, tokenY, TextFace::SansBold12, TextAlign::TopLeft, kText, kBg);
 
   // Extra cost reports (placeholders this pass — real fetches to follow).
   static const char* const kReports[4] = {
@@ -656,10 +671,9 @@ void UsageUI::drawPlatformColumn(int x, int y, int w, int h, const char* name,
     "Rate limits: n/a",
     "Claude Code analytics: n/a",
   };
-  for (int i = 0; i < 4 && cy + 14 <= y + h; ++i) {
-    renderer_.drawTextFace(kReports[i], x, cy, TextFace::SansBold12,
+  for (int i = 0; i < 4; ++i) {
+    renderer_.drawTextFace(kReports[i], x, reportsY + i * 18, TextFace::SansBold12,
                            TextAlign::TopLeft, kMuted, kBg);
-    cy += 18;
   }
 }
 
