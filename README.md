@@ -293,6 +293,16 @@ pio test -e native
 
 Condensed; see `git log` for detail.
 
+- **v1.15.11** — WiFi: fix the device dropping to the `UsageMonitor` config
+  portal roughly every night. The deep-sleep fast path persisted a
+  BSSID-locked STA profile (`WiFi.begin(ssid,pass,ch,bssid)` with
+  `WiFi.persistent` default true), so when a guest/mesh AP rotated its
+  BSSID/channel overnight the stored profile hunted a dead BSSID →
+  `NO_AP_FOUND` → portal (credentials were never lost). Reconnects now use
+  `WiFi.persistent(false)` and the fallback does a full-scan
+  `WiFi.begin(ssid,pass)`. Adds an opt-in "Enable diagnostic logging" toggle
+  (serial NVS/WiFi boot lines) under **System → Advanced Options**, off by
+  default; "Advanced" is renamed "Advanced Options" and moved below Deep Sleep.
 - **v1.15.10** — header shows the current date after the version; e-paper
   flicker/bounce hardening: fixed-width Fetch clock + `$`/STALE slots so the
   header no longer re-centers each fetch, draw-fingerprint de-dup to drop
