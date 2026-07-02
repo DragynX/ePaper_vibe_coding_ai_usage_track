@@ -162,11 +162,11 @@ arduino-cli upload -p COM12 --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi .
 #### Or flash the prebuilt image (no build)
 
 A full merged flash image is committed under
-[`bin/`](bin/) — e.g. `bin/E1001-AIUsageMonitor.v.1.15.10.bin` (bootloader +
+[`bin/`](bin/) — e.g. `bin/E1001-AIUsageMonitor.v.1.15.11.bin` (bootloader +
 partitions + app). Write it to offset `0x0` with esptool:
 
 ```sh
-esptool.py --chip esp32s3 -p COM12 write_flash 0x0 bin/E1001-AIUsageMonitor.v.1.15.10.bin
+esptool.py --chip esp32s3 -p COM12 write_flash 0x0 bin/E1001-AIUsageMonitor.v.1.15.11.bin
 ```
 
 > ⚠️ The merged image flashes at **`0x0`** and **full-erases the chip, including
