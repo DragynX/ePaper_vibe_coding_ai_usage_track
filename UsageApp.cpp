@@ -8,6 +8,7 @@
 #include <driver/gpio.h>
 #include <esp_sleep.h>
 #include <esp_wifi.h>
+#include <nvs.h>            // DIAG: nvs_get_stats — WiFi-forget investigation
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -520,6 +521,17 @@ void UsageApp::begin() {
   g_battFullMv = cfgStore_.battFullMv();
   sysLog("[sleep] boot_id=%u deep_sleep=%d", (unsigned)g_wakeCount,
          cfgStore_.deepSleepEnabled() ? 1 : 0);
+  // DIAG (opt-in via System settings "Enable diagnostic logging"): NVS fill level.
+  // free_entries≈0 => partition exhaustion; steady free across wakes => not full.
+  if (cfgStore_.diagLog()) {
+    nvs_stats_t nst;
+    if (nvs_get_stats(NULL, &nst) == ESP_OK)
+      sysLog("[nvs] used=%u free=%u total=%u",
+             (unsigned)nst.used_entries, (unsigned)nst.free_entries,
+             (unsigned)nst.total_entries);
+    else
+      sysLog("[nvs] get_stats failed");
+  }
   http_.configure(15000);   // providers answer in 1-3s; 45s only lengthened bad wakes
   configureProviders();
   localStats_.configure(&http_, cfgStore_.localStatsUrl().c_str());
@@ -535,6 +547,17 @@ void UsageApp::begin() {
   // dashboard stays on screen (blank only on the very first boot) while WiFi +
   // fetch run, then ONE clean full refresh shows the new data — cold boot now
   // costs a single GRAY4 flash. The portal screen below still draws on failure.
+  // DIAG (opt-in via System settings "Enable diagnostic logging"): log the STA
+  // disconnect reason so we can tell wrong/corrupted key (15 4WAY_HANDSHAKE_TIMEOUT
+  // / 205 CONNECTION_FAIL / 202 AUTH_FAIL) from an AP problem (201 NO_AP_FOUND /
+  // 200 BEACON_TIMEOUT).
+  if (cfgStore_.diagLog()) {
+    WiFi.onEvent([](arduino_event_id_t ev, arduino_event_info_t info) {
+      if (ev == ARDUINO_EVENT_WIFI_STA_DISCONNECTED)
+        sysLog("[wifi] disc reason=%d", (int)info.wifi_sta_disconnected.reason);
+    });
+  }
+
   if (!ensureWiFi(15000)) {
     sysLog("[wifi] STA failed — launching portal");
     WiFi.disconnect(false);
@@ -824,6 +847,29 @@ bool UsageApp::ensureWiFi(uint32_t timeoutMs) {
   }
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+  // Do NOT persist STA config from the reconnect paths. The fast path below calls
+  // WiFi.begin(ssid,pass,channel,bssid) which sets bssid_set=1; with persistent
+  // (Arduino default) true, that BSSID-locked profile gets written to nvs.net80211
+  // and, once the AP rotates its BSSID/channel (guest/mesh APs do this nightly), a
+  // later boot loads the locked profile and fails with NO_AP_FOUND -> config portal.
+  // The onboarding portal already saved a durable (unlocked) profile; keep it.
+  WiFi.persistent(false);
+
+  // DIAG (opt-in via System settings "Enable diagnostic logging"): what does the
+  // ESP WiFi NVS actually hold? ssid_len=0 => creds wiped; bssid_set=1 with a stale
+  // bssid/chan => the BSSID-lock bug (NO_AP_FOUND after the AP rotates its BSSID).
+  if (cfgStore_.diagLog()) {
+    wifi_config_t dcfg = {};
+    esp_err_t ge = esp_wifi_get_config(WIFI_IF_STA, &dcfg);
+    sysLog("[wifi] stored getcfg=%d ssid_len=%d ssid='%.32s' pass_len=%d "
+           "bssid_set=%d chan=%d bssid=%02x:%02x:%02x:%02x:%02x:%02x",
+           (int)ge, (int)strlen(reinterpret_cast<char*>(dcfg.sta.ssid)),
+           reinterpret_cast<char*>(dcfg.sta.ssid),
+           (int)strlen(reinterpret_cast<char*>(dcfg.sta.password)),
+           (int)dcfg.sta.bssid_set, (int)dcfg.sta.channel,
+           dcfg.sta.bssid[0], dcfg.sta.bssid[1], dcfg.sta.bssid[2],
+           dcfg.sta.bssid[3], dcfg.sta.bssid[4], dcfg.sta.bssid[5]);
+  }
 
   // Fast path: associate directly to the cached AP (BSSID + channel) using the
   // creds stored in NVS, skipping the scan. Bounded to ~4s, then fall back.
@@ -849,7 +895,19 @@ bool UsageApp::ensureWiFi(uint32_t timeoutMs) {
   }
 
   sysLog("[wifi] connecting (timeout=%ums)...", (unsigned)timeoutMs);
-  WiFi.begin();
+  // Connect with the STORED creds but WITHOUT a BSSID lock (2-arg begin -> full
+  // channel scan), so a rotated/rebooted AP on a new BSSID/channel is still found.
+  // Bare WiFi.begin() would reload the persisted profile, which an earlier fast
+  // path may have left BSSID-locked (bssid_set=1) -> NO_AP_FOUND.
+  {
+    wifi_config_t gcfg = {};
+    if (esp_wifi_get_config(WIFI_IF_STA, &gcfg) == ESP_OK && gcfg.sta.ssid[0]) {
+      WiFi.begin(reinterpret_cast<const char*>(gcfg.sta.ssid),
+                 reinterpret_cast<const char*>(gcfg.sta.password));
+    } else {
+      WiFi.begin();
+    }
+  }
   const uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
     delay(250);

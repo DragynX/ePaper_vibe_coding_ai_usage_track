@@ -16,6 +16,7 @@ class ConfigStore {
   bool deepSleepEnabled() const { return deepSleep_; }
   bool darkMode() const         { return dark_; }
   bool secureTokens() const     { return secure_; }
+  bool diagLog() const          { return diag_; }
   int  uiFont() const           { return ui_font_; }
   bool uiAa() const             { return ui_aa_; }
   int  uiSharp() const          { return ui_sharp_; }
@@ -57,6 +58,7 @@ class ConfigStore {
   void setDeepSleep(bool v)              { deepSleep_ = v; }
   void setDarkMode(bool v)               { dark_ = v; }
   void setSecureTokens(bool v)           { secure_ = v; }
+  void setDiagLog(bool v)                { diag_ = v; }
   void setUiFont(int v)                  { ui_font_ = v; }
   void setUiAa(bool v)                   { ui_aa_ = v; }
   void setUiSharp(int v)                 { ui_sharp_ = v; }
@@ -123,6 +125,7 @@ class ConfigStore {
   int     ui_weight_   = 45;      // AA text weight 0..100 (higher = darker thin strokes)
   bool    ui_small_crisp_ = true; // small text: true = baked bitmap (crisp), false = vector
   bool    secure_      = false;
+  bool    diag_        = false;   // extra WiFi/NVS diagnostic serial logging (opt-in)
   uint16_t battFull_   = 4200;
   uint8_t pendingTestMask_ = 0;
 

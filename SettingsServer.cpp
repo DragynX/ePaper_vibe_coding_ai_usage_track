@@ -157,7 +157,6 @@ R"rawhtml(
 </div>
 
 <div id="p2" class="pane">
-  <label class="chkrow" style="margin-top:0"><input type="checkbox" id="adv" onchange="toggleAdv()"><span>Advanced (show all options)</span></label>
   <label style="margin-top:12px">Timezone
     <select id="tz_sel" onchange="onTzSel(this.value)">
       <option value="UTC0">UTC</option>
@@ -234,6 +233,12 @@ R"rawhtml(
     <span>Enable Deep Sleep between fetches</span>
   </label>
   <p class="note" style="margin-top:4px">Deep Sleep: settings page is only available for 5 min after power-on/reset. Device sleeps between fetches.</p>
+  <label class="chkrow" style="margin-top:14px"><input type="checkbox" id="adv" onchange="toggleAdv()"><span>Advanced Options</span></label>
+  <label class="chkrow adv-only" style="margin-top:10px">
+    <input type="checkbox" id="diag_log">
+    <span>Enable diagnostic logging (serial)</span>
+  </label>
+  <p class="note adv-only" style="margin-top:4px">Diagnostics: extra WiFi/NVS boot lines on the serial console for troubleshooting. Off by default.</p>
   <div class="row" style="margin-top:20px">
     <button class="btn info" onclick="doRestart()">Restart Device</button>
     <button class="btn danger" onclick="doWifiReset()">Reset WiFi</button>
@@ -417,6 +422,7 @@ function populate(c){
   const rs=document.getElementById('ref_sec');if(rs){rs.value=c.ref_sec??300;updRef(rs.value);}
   const bf=document.getElementById('batt_full');if(bf)bf.value=c.batt_full??4200;
   const ds=document.getElementById('deep_sleep');if(ds)ds.checked=!!c.deep_sleep;
+  const dg=document.getElementById('diag_log');if(dg)dg.checked=!!c.diag_log;
   const dk=document.getElementById('dark');if(dk)dk.checked=!!c.dark;
   const uf=document.getElementById('ui_font');if(uf)uf.value=String(c.ui_font??0);
   const ftf=document.getElementById('ft_font');if(ftf)ftf.value=String(c.ui_font??4);
@@ -445,6 +451,7 @@ function collect(){
   d.mm_reg=parseInt(document.getElementById('mm_reg')?.value??'0');
   d.ref_sec=parseInt(document.getElementById('ref_sec').value);
   d.deep_sleep=document.getElementById('deep_sleep').checked;
+  d.diag_log=document.getElementById('diag_log').checked;
   d.dark=document.getElementById('dark').checked;
   d.ui_font=parseInt(document.getElementById('ui_font').value);
   d.ui_aa=document.getElementById('ui_aa').checked;

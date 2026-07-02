@@ -23,6 +23,7 @@ void ConfigStore::load() {
   deepSleep_  = p.getBool("deep_sleep", false);
   dark_       = p.getBool("dark", false);
   secure_     = p.getBool("secure", false);
+  diag_       = p.getBool("diag_log", false);
   ui_font_    = p.getInt("ui_font", 4);
   ui_aa_      = p.getBool("ui_aa", false);
   ui_sharp_   = p.getInt("ui_sharp", 50);
@@ -68,6 +69,7 @@ void ConfigStore::save() {
   p.putBool("deep_sleep",  deepSleep_);
   p.putBool("dark",        dark_);
   p.putBool("secure",      secure_);
+  p.putBool("diag_log",    diag_);
   p.putInt("ui_font",      ui_font_);
   p.putBool("ui_aa",       ui_aa_);
   p.putInt("ui_sharp",     ui_sharp_);
@@ -161,6 +163,7 @@ String ConfigStore::toJson() const {
   doc["deep_sleep"] = deepSleep_;
   doc["dark"]       = dark_;
   doc["secure"]     = secure_;
+  doc["diag_log"]   = diag_;
   doc["ui_font"]    = ui_font_;
   doc["ui_aa"]      = ui_aa_;
   doc["ui_sharp"]   = ui_sharp_;
@@ -220,6 +223,7 @@ bool ConfigStore::fromJson(const String& json) {
   deepSleep_ = doc["deep_sleep"] | deepSleep_;
   dark_      = doc["dark"] | dark_;
   secure_    = doc["secure"] | secure_;
+  diag_      = doc["diag_log"] | diag_;
   ui_font_   = doc["ui_font"] | ui_font_;
   ui_aa_     = doc["ui_aa"] | ui_aa_;
   ui_sharp_  = doc["ui_sharp"] | ui_sharp_;
