@@ -162,11 +162,11 @@ arduino-cli upload -p COM12 --fqbn esp32:esp32:XIAO_ESP32S3:PSRAM=opi .
 #### Or flash the prebuilt image (no build)
 
 A full merged flash image is committed under
-[`bin/`](bin/) — e.g. `bin/E1001-AIUsageMonitor.v.1.15.11.bin` (bootloader +
+[`bin/`](bin/) — e.g. `bin/E1001-AIUsageMonitor.v.1.16.0.bin` (bootloader +
 partitions + app). Write it to offset `0x0` with esptool:
 
 ```sh
-esptool.py --chip esp32s3 -p COM12 write_flash 0x0 bin/E1001-AIUsageMonitor.v.1.15.11.bin
+esptool.py --chip esp32s3 -p COM12 write_flash 0x0 bin/E1001-AIUsageMonitor.v.1.16.0.bin
 ```
 
 > ⚠️ The merged image flashes at **`0x0`** and **full-erases the chip, including
@@ -293,6 +293,16 @@ pio test -e native
 
 Condensed; see `git log` for detail.
 
+- **v1.16.0** — adds a **Fable 7d** card between Session and Weekly, so the
+  Claude column now stacks three windows. The usage API moved its per-model
+  quotas out of the top-level `seven_day_opus` / `seven_day_sonnet` keys —
+  both now return `null` — and into a `limits[]` array whose entries are
+  `kind="weekly_scoped"`, tagged with `scope.model.display_name` and carrying
+  an integer `percent` instead of the `utilization` double the older windows
+  use; a separate parser handles that shape. Session keeps its large hero
+  number at 150px while Fable and Weekly take 95px each and drop to a smaller
+  numeral so the value clears the progress bar. Providers that expose no Fable
+  window render the existing `--` placeholder.
 - **v1.15.11** — WiFi: fix the device dropping to the `UsageMonitor` config
   portal roughly every night. The deep-sleep fast path persisted a
   BSSID-locked STA profile (`WiFi.begin(ssid,pass,ch,bssid)` with
