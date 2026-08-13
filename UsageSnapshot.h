@@ -58,6 +58,7 @@ struct ProviderQuota {
   WindowQuota weekly;                 // Claude seven_day  / Codex secondary_window
   WindowQuota weeklySonnet;           // Claude only (present=false on Codex)
   WindowQuota weeklyOpus;             // Claude only
+  WindowQuota weeklyFable;            // Claude only; from limits[] scope.model
 
   bool   extraEnabled = false;        // Claude extra_usage.is_enabled
   double extraUsedCents = 0.0;        // Claude extra_usage.used_credits (cents)

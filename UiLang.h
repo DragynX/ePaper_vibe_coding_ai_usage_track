@@ -29,6 +29,7 @@ enum class UiStringId {
   kWinWeekly,      // 7-day window label
   kWinSonnet,      // Claude Sonnet 7-day window label
   kWinOpus,        // Claude Opus 7-day window label
+  kWinFable,       // Claude Fable 7-day window label
   kRemaining,      // "left" suffix on the big remaining percentage
   kUsed,           // "used" prefix on the consumed percentage
   kResets,         // countdown prefix
@@ -72,6 +73,7 @@ inline const char* uiStrEn(UiStringId id) {
     case UiStringId::kWinWeekly:    return "Weekly";
     case UiStringId::kWinSonnet:    return "Sonnet 7d";
     case UiStringId::kWinOpus:      return "Opus 7d";
+    case UiStringId::kWinFable:     return "Fable 7d";
     case UiStringId::kRemaining:    return "Remaining";
     case UiStringId::kUsed:         return "used";
     case UiStringId::kResets:       return "resets";
@@ -116,6 +118,7 @@ inline const char* uiStrZh(UiStringId id) {
     case UiStringId::kWinWeekly:    return "1 周";
     case UiStringId::kWinSonnet:    return "Sonnet 7天";
     case UiStringId::kWinOpus:      return "Opus 7天";
+    case UiStringId::kWinFable:     return "Fable 7天";
     case UiStringId::kRemaining:    return "剩余";
     case UiStringId::kUsed:         return "已用";
     case UiStringId::kResets:       return "重置";

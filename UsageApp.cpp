@@ -1303,6 +1303,7 @@ static void fpProvider(uint32_t& h, const ProviderQuota& p, long n) {
   fpWindow(h, p.weekly);
   fpWindow(h, p.weeklySonnet);
   fpWindow(h, p.weeklyOpus);
+  fpWindow(h, p.weeklyFable);
   fnvI(h, p.extraEnabled ? 1 : 0);
   fnvI(h, (long)p.extraUsedCents);
   fnvI(h, (long)p.extraLimitCents);

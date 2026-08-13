@@ -460,13 +460,20 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
   display_.drawRect(x, y, w, h, kLine);
   const int pad = kIsLarge ? 12 : 10;
 
+  // Short cards (the stacked Fable/Weekly pair) cannot clear the bar slot with
+  // the full-size numerals: SansBold36 is 50px and would collide with barY.
+  // Derived from h so every existing call site stays valid.
+  const bool compact = (h < 140);
+  const TextFace bigFace = compact
+                             ? TextFace::SansBold18
+                             : (emphasize ? TextFace::SansBold48 : TextFace::SansBold36);
+
   // Top row: window label (left).
   renderer_.drawTextFace(label, x + pad, y + pad, TextFace::SansBold9,
                          TextAlign::TopLeft, kText, kCard);
 
   if (!win.present) {
-    renderer_.drawTextFace("--", x + pad, y + h / 2 - 10,
-                           emphasize ? TextFace::SansBold48 : TextFace::SansBold36,
+    renderer_.drawTextFace("--", x + pad, y + h / 2 - 10, bigFace,
                            TextAlign::TopLeft, kMuted, kCard);
     return;
   }
@@ -476,7 +483,6 @@ void UsageUI::drawWindowCard(int x, int y, int w, int h, const char* label,
   snprintf(pctBuf, sizeof(pctBuf), "%d%%",
            static_cast<int>(win.usedPercent + 0.5));
   const int bigY = y + pad + 18;
-  const TextFace bigFace = emphasize ? TextFace::SansBold48 : TextFace::SansBold36;
   renderer_.drawTextFace(pctBuf, x + pad, bigY, bigFace,
                          TextAlign::TopLeft, kText, kCard);
   if (stale) {   // rate-limited / stale: mark the preserved value to the right of the %
@@ -838,16 +844,24 @@ void UsageUI::drawProviderColumn(int x, int y, int w, int h, const char* name,
   const int headerH = kIsLarge ? 60 : 40;
   int cy = y + headerH;
 
-  // Two window cards stacked: session on top, weekly below.
+  // Three window cards stacked: session, Fable 7d, weekly. Session keeps the
+  // tall card so its hero number stays at SansBold48; the two below are sized
+  // from what is left, and drawWindowCard drops to a compact type scale for
+  // them (see the `compact` flag there).
   {
-    const int cardH = (h - headerH - 20) / 2;
-    drawWindowCard(x, cy, w, cardH, uiStr(UiStringId::kWinSession),
+    const int gap     = 10;
+    const int cardBig = 150;
+    const int cardSm  = (h - headerH - cardBig - gap * 3) / 2;
+    drawWindowCard(x, cy, w, cardBig, uiStr(UiStringId::kWinSession),
                    p.session, nowEpoch, /*emphasize=*/true, stale);
-    cy += cardH + 10;
-    drawWindowCard(x, cy, w, cardH, uiStr(UiStringId::kWinWeekly),
+    cy += cardBig + gap;
+    drawWindowCard(x, cy, w, cardSm, uiStr(UiStringId::kWinFable),
+                   p.weeklyFable, nowEpoch, /*emphasize=*/false, stale);
+    cy += cardSm + gap;
+    drawWindowCard(x, cy, w, cardSm, uiStr(UiStringId::kWinWeekly),
                    p.weekly, nowEpoch, /*emphasize=*/false, stale);
     if (!kIsLarge) return;
-    cy += cardH + 10;
+    cy += cardSm + gap;
   }
 
   // Lower block: Claude per-model 7-day rows, else Codex balance.

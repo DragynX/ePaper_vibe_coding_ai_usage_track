@@ -1,6 +1,7 @@
 #include "ClaudeUsageClient.h"
 
 #include <ArduinoJson.h>
+#include <string.h>
 
 #include "AppLog.h"
 #include "IsoTime.h"
@@ -88,6 +89,26 @@ bool ClaudeUsageClient::fetch(long now, ProviderQuota& out) {
   parseWin(doc["seven_day_sonnet"], out.weeklySonnet);
   parseWin(doc["seven_day_opus"], out.weeklyOpus);
 
+  // Per-model weekly windows now arrive in limits[] rather than as top-level
+  // seven_day_<model> keys (those read null on current accounts). Entries are
+  // kind="weekly_scoped" tagged with scope.model.display_name, and carry an
+  // integer "percent" instead of the "utilization" double used above.
+  auto parseScoped = [&](const char* model, WindowQuota& w) {
+    for (JsonVariantConst it : doc["limits"].as<JsonArrayConst>()) {
+      const char* kind = it["kind"];
+      if (!kind || strcmp(kind, "weekly_scoped") != 0) continue;
+      const char* name = it["scope"]["model"]["display_name"];
+      if (!name || strcmp(name, model) != 0) continue;
+      w.present = true;
+      w.usedPercent = it["percent"] | 0.0;
+      const char* ra = it["resets_at"];
+      w.resetEpoch = ra ? umParseIso8601(ra) : 0;
+      w.status = umStatusFromUsed(w.usedPercent);
+      return;
+    }
+  };
+  parseScoped("Fable", out.weeklyFable);
+
   JsonVariantConst ex = doc["extra_usage"];
   if (!ex.isNull()) {
     out.extraEnabled = ex["is_enabled"] | false;
@@ -95,8 +116,9 @@ bool ClaudeUsageClient::fetch(long now, ProviderQuota& out) {
     out.extraLimitCents = ex["monthly_limit"] | 0.0;
   }
 
-  sysLog("[claude/usage] ok 5h=%.0f%% 7d=%.0f%% opus=%d sonnet=%d extra=%d",
+  sysLog("[claude/usage] ok 5h=%.0f%% 7d=%.0f%% fable=%.0f%%(%d) opus=%d sonnet=%d extra=%d",
          out.session.usedPercent, out.weekly.usedPercent,
+         out.weeklyFable.usedPercent, out.weeklyFable.present ? 1 : 0,
          out.weeklyOpus.present ? 1 : 0, out.weeklySonnet.present ? 1 : 0,
          out.extraEnabled ? 1 : 0);
   out.ok = true;
